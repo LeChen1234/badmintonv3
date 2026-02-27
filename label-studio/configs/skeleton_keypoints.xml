@@ -1,0 +1,49 @@
+<View>
+  <Header value="羽毛球骨架关节点标注" />
+  <Image name="image" value="$image" zoom="true" zoomControl="true" rotateControl="false" />
+
+  <KeyPointLabels name="keypoints" toName="image" smart="true" strokeWidth="2" fillColor="rgba(0,0,0,0.4)">
+    <!-- 头部 -->
+    <Label value="head_top" background="#FF0000" />
+    <Label value="head_center" background="#FF3333" />
+    <Label value="chin" background="#FF6666" />
+
+    <!-- 躯干 -->
+    <Label value="neck" background="#FF8800" />
+    <Label value="chest_center" background="#FFAA00" />
+    <Label value="spine_mid" background="#FFCC00" />
+    <Label value="pelvis_center" background="#FFEE00" />
+
+    <!-- 左上肢 -->
+    <Label value="left_shoulder" background="#00FF00" />
+    <Label value="left_elbow" background="#00CC00" />
+    <Label value="left_wrist" background="#009900" />
+    <Label value="left_palm" background="#006600" />
+
+    <!-- 右上肢 -->
+    <Label value="right_shoulder" background="#0088FF" />
+    <Label value="right_elbow" background="#0066CC" />
+    <Label value="right_wrist" background="#004499" />
+    <Label value="right_palm" background="#003377" />
+
+    <!-- 左下肢 -->
+    <Label value="left_hip" background="#AA00FF" />
+    <Label value="left_knee" background="#8800CC" />
+    <Label value="left_ankle" background="#660099" />
+    <Label value="left_toe" background="#440066" />
+
+    <!-- 右下肢 -->
+    <Label value="right_hip" background="#FF00AA" />
+    <Label value="right_knee" background="#CC0088" />
+    <Label value="right_ankle" background="#990066" />
+    <Label value="right_toe" background="#660044" />
+
+    <!-- 羽毛球专项关节点 -->
+    <Label value="racket_grip" background="#00FFFF" />
+    <Label value="racket_head" background="#00CCCC" />
+  </KeyPointLabels>
+
+  <!-- 标注备注 -->
+  <TextArea name="notes" toName="image" placeholder="标注备注（可选）"
+            maxSubmissions="1" editable="true" rows="2" />
+</View>

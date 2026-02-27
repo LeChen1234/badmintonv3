@@ -1,0 +1,38 @@
+### 羽毛球标注平台 - API 调用示例
+### 使用方式：VS Code 安装 REST Client 插件，或复制为 curl 使用
+
+@base = http://localhost:8000/api
+@token = {{login.response.body.$.access_token}}
+
+### 1. 登录获取 Token（init_platform 后可用专家账号）
+# @name login
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "expert1",
+  "password": "expert123"
+}
+
+### 2. 获取当前用户信息
+GET {{base}}/auth/me
+Authorization: Bearer {{token}}
+
+### 3. 健康检查
+GET {{base}}/health
+
+### 4. 获取用户列表（需管理员/专家等权限）
+GET {{base}}/users
+Authorization: Bearer {{token}}
+
+### 5. 获取项目列表
+GET {{base}}/projects
+Authorization: Bearer {{token}}
+
+### 6. 获取任务批次列表
+GET {{base}}/tasks/batches
+Authorization: Bearer {{token}}
+
+### 7. 导出数据（示例：CSV）
+GET {{base}}/export/csv?batch_id=1
+Authorization: Bearer {{token}}

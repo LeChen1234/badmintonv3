@@ -1,0 +1,5 @@
+label-studio-ml==1.0.9
+label-studio-sdk==1.0.5
+uvicorn==0.34.0
+numpy==1.26.4
+Pillow==11.1.0

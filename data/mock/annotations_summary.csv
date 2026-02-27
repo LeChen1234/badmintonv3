@@ -1,0 +1,13 @@
+task_id,clip,frame,action,phase,quality,num_keypoints
+1,serve_forehand_001,frame_0001.png,serve_forehand,recovery_phase,acceptable,25
+2,serve_forehand_001,frame_0002.png,serve_forehand,contact,acceptable,25
+3,serve_forehand_001,frame_0003.png,serve_forehand,follow_through,standard,25
+4,serve_forehand_001,frame_0004.png,serve_forehand,forward_swing,needs_correction,25
+5,serve_forehand_001,frame_0005.png,serve_forehand,contact,acceptable,25
+6,serve_forehand_001,frame_0006.png,serve_forehand,forward_swing,acceptable,25
+7,serve_backhand_002,frame_0001.png,serve_backhand,preparation,acceptable,25
+8,serve_backhand_002,frame_0002.png,serve_backhand,recovery_phase,standard,25
+9,serve_backhand_002,frame_0003.png,serve_backhand,forward_swing,standard,25
+10,serve_backhand_002,frame_0004.png,serve_backhand,recovery_phase,standard,25
+11,serve_backhand_002,frame_0005.png,serve_backhand,forward_swing,acceptable,25
+12,serve_backhand_002,frame_0006.png,serve_backhand,recovery_phase,needs_correction,25

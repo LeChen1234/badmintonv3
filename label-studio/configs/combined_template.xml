@@ -1,0 +1,85 @@
+<View>
+  <Header value="羽毛球训练动作综合标注（骨架 + 动作）" />
+
+  <View style="display:flex;">
+    <!-- 左侧：图片与骨架关节点标注 -->
+    <View style="flex:1; margin-right:10px;">
+      <Header value="骨架关节点" size="4" />
+      <Image name="image" value="$image" zoom="true" zoomControl="true" rotateControl="false" />
+
+      <KeyPointLabels name="keypoints" toName="image" smart="true" strokeWidth="2" fillColor="rgba(0,0,0,0.4)">
+        <Label value="head_top" background="#FF0000" />
+        <Label value="head_center" background="#FF3333" />
+        <Label value="chin" background="#FF6666" />
+        <Label value="neck" background="#FF8800" />
+        <Label value="chest_center" background="#FFAA00" />
+        <Label value="spine_mid" background="#FFCC00" />
+        <Label value="pelvis_center" background="#FFEE00" />
+        <Label value="left_shoulder" background="#00FF00" />
+        <Label value="left_elbow" background="#00CC00" />
+        <Label value="left_wrist" background="#009900" />
+        <Label value="left_palm" background="#006600" />
+        <Label value="right_shoulder" background="#0088FF" />
+        <Label value="right_elbow" background="#0066CC" />
+        <Label value="right_wrist" background="#004499" />
+        <Label value="right_palm" background="#003377" />
+        <Label value="left_hip" background="#AA00FF" />
+        <Label value="left_knee" background="#8800CC" />
+        <Label value="left_ankle" background="#660099" />
+        <Label value="left_toe" background="#440066" />
+        <Label value="right_hip" background="#FF00AA" />
+        <Label value="right_knee" background="#CC0088" />
+        <Label value="right_ankle" background="#990066" />
+        <Label value="right_toe" background="#660044" />
+        <Label value="racket_grip" background="#00FFFF" />
+        <Label value="racket_head" background="#00CCCC" />
+      </KeyPointLabels>
+    </View>
+
+    <!-- 右侧：动作分类标注 -->
+    <View style="flex:1; margin-left:10px;">
+      <Header value="动作类别" size="4" />
+
+      <Choices name="action_type" toName="image" choice="single" showInline="true">
+        <Choice value="smash" alias="杀球" />
+        <Choice value="clear" alias="高远球" />
+        <Choice value="drop_shot" alias="吊球" />
+        <Choice value="net_shot" alias="放网" />
+        <Choice value="drive" alias="平抽球" />
+        <Choice value="lift" alias="挑球" />
+        <Choice value="push" alias="推球" />
+        <Choice value="block" alias="挡网" />
+        <Choice value="backhand_clear" alias="反手高远球" />
+        <Choice value="backhand_drop" alias="反手吊球" />
+        <Choice value="serve_forehand" alias="正手发球" />
+        <Choice value="serve_backhand" alias="反手发球" />
+        <Choice value="footwork_lunge" alias="跨步步法" />
+        <Choice value="footwork_jump" alias="跳跃步法" />
+        <Choice value="footwork_shuffle" alias="滑步步法" />
+        <Choice value="ready_stance" alias="准备姿势" />
+        <Choice value="recovery" alias="回位" />
+        <Choice value="other" alias="其他" />
+      </Choices>
+
+      <Header value="动作阶段" size="4" />
+      <Choices name="action_phase" toName="image" choice="single" showInline="true">
+        <Choice value="preparation" alias="准备阶段" />
+        <Choice value="backswing" alias="引拍阶段" />
+        <Choice value="forward_swing" alias="挥拍阶段" />
+        <Choice value="contact" alias="击球瞬间" />
+        <Choice value="follow_through" alias="随挥阶段" />
+        <Choice value="recovery_phase" alias="回位阶段" />
+      </Choices>
+
+      <Header value="动作质量" size="4" />
+      <Choices name="quality_rating" toName="image" choice="single" showInline="true">
+        <Choice value="standard" alias="标准动作" />
+        <Choice value="acceptable" alias="可接受" />
+        <Choice value="needs_correction" alias="需纠正" />
+      </Choices>
+    </View>
+  </View>
+
+  <TextArea name="notes" toName="image" placeholder="标注备注（可选）"
+            maxSubmissions="1" editable="true" rows="2" />
+</View>

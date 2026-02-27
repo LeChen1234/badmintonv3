@@ -1,0 +1,46 @@
+<View>
+  <Header value="羽毛球动作类别标注" />
+  <Image name="image" value="$image" zoom="true" zoomControl="true" />
+
+  <!-- 单帧动作类别标注 -->
+  <Choices name="action_type" toName="image" choice="single" showInline="true">
+    <Choice value="smash" alias="杀球" />
+    <Choice value="clear" alias="高远球" />
+    <Choice value="drop_shot" alias="吊球" />
+    <Choice value="net_shot" alias="放网" />
+    <Choice value="drive" alias="平抽球" />
+    <Choice value="lift" alias="挑球" />
+    <Choice value="push" alias="推球" />
+    <Choice value="block" alias="挡网" />
+    <Choice value="backhand_clear" alias="反手高远球" />
+    <Choice value="backhand_drop" alias="反手吊球" />
+    <Choice value="serve_forehand" alias="正手发球" />
+    <Choice value="serve_backhand" alias="反手发球" />
+    <Choice value="footwork_lunge" alias="跨步步法" />
+    <Choice value="footwork_jump" alias="跳跃步法" />
+    <Choice value="footwork_shuffle" alias="滑步步法" />
+    <Choice value="ready_stance" alias="准备姿势" />
+    <Choice value="recovery" alias="回位" />
+    <Choice value="other" alias="其他" />
+  </Choices>
+
+  <!-- 动作阶段标注 -->
+  <Choices name="action_phase" toName="image" choice="single" showInline="true">
+    <Choice value="preparation" alias="准备阶段" />
+    <Choice value="backswing" alias="引拍阶段" />
+    <Choice value="forward_swing" alias="挥拍阶段" />
+    <Choice value="contact" alias="击球瞬间" />
+    <Choice value="follow_through" alias="随挥阶段" />
+    <Choice value="recovery_phase" alias="回位阶段" />
+  </Choices>
+
+  <!-- 动作质量评级 -->
+  <Choices name="quality_rating" toName="image" choice="single" showInline="true">
+    <Choice value="standard" alias="标准动作" />
+    <Choice value="acceptable" alias="可接受" />
+    <Choice value="needs_correction" alias="需纠正" />
+  </Choices>
+
+  <TextArea name="notes" toName="image" placeholder="标注备注（可选）"
+            maxSubmissions="1" editable="true" rows="2" />
+</View>

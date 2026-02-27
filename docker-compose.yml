@@ -1,0 +1,149 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL ──
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── MinIO 对象存储 ──
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Label Studio ──
+  label-studio:
+    image: heartexlabs/label-studio:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DJANGO_DB: default
+      POSTGRE_NAME: ${POSTGRES_DB}
+      POSTGRE_USER: ${POSTGRES_USER}
+      POSTGRE_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRE_HOST: postgres
+      POSTGRE_PORT: 5432
+      LABEL_STUDIO_USERNAME: ${LABEL_STUDIO_USERNAME}
+      LABEL_STUDIO_PASSWORD: ${LABEL_STUDIO_PASSWORD}
+      LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED: "true"
+      LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT: /label-studio/data
+      ML_BACKENDS: '[{"url":"http://ml-backend:9090","name":"badminton-ml"}]'
+    volumes:
+      - ls_data:/label-studio/data
+      - ./label-studio/configs:/label-studio/configs:ro
+    ports:
+      - "8080:8080"
+
+  # ── ML Backend (自动标注) ──
+  ml-backend:
+    build:
+      context: ./ml-backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - label-studio
+    environment:
+      LABEL_STUDIO_HOST: ${LABEL_STUDIO_HOST}
+      LABEL_STUDIO_API_KEY: ${LABEL_STUDIO_API_KEY}
+      LOG_LEVEL: ${ML_BACKEND_LOG_LEVEL:-INFO}
+    ports:
+      - "9090:9090"
+    volumes:
+      - ml_models:/app/models
+
+  # ── FastAPI 管理后端 ──
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      SECRET_KEY: ${BACKEND_SECRET_KEY}
+      ALGORITHM: ${BACKEND_ALGORITHM}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${BACKEND_ACCESS_TOKEN_EXPIRE_MINUTES}
+      CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
+      LABEL_STUDIO_HOST: ${LABEL_STUDIO_HOST}
+      LABEL_STUDIO_API_KEY: ${LABEL_STUDIO_API_KEY}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_USE_SSL: ${MINIO_USE_SSL}
+      ML_BACKEND_HOST: ${ML_BACKEND_HOST}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+
+  # ── Vue 3 管理前端 ──
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  pg_data:
+  redis_data:
+  minio_data:
+  ls_data:
+  ml_models:
