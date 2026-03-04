@@ -6,6 +6,13 @@ from pydantic import BaseModel, Field
 from app.models.user import UserRole
 
 
+class UserRegister(BaseModel):
+    """公开注册，角色固定为 STUDENT"""
+    username: str = Field(..., min_length=3, max_length=64)
+    password: str = Field(..., min_length=6, max_length=128)
+    display_name: str = Field(..., min_length=1, max_length=128)
+
+
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=64)
     password: str = Field(..., min_length=6, max_length=128)

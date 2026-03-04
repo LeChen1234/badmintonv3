@@ -48,6 +48,8 @@ yarn-error.log*
 Thumbs.db
 
 # Data / runtime (optional: keep mock data in repo)
+data/
+!data/.gitkeep
 data/mock/*.jpg
 data/mock/frames/
 
@@ -64,5 +66,5 @@ htmlcov/
 .pytest_cache/
 .tox/
 
-# Docker
+# Logs
 *.log

@@ -16,16 +16,20 @@
 
 ## 快速开始
 
+本地需安装 Python 3.10+、Node.js 18+、PostgreSQL 16、Redis。
+
 ```bash
 # 1. 复制环境变量文件并修改（也可用 examples/env.minimal.sample）
 cp .env.example .env
 # 编辑 .env，至少设置 LABEL_STUDIO_API_KEY（见下方说明）
 
-# 2. 启动全部服务
-docker-compose up -d
+# 2. 安装依赖并执行数据库迁移（Windows PowerShell 推荐）
+.\scripts\install_and_run.ps1
 
-# 3. 数据库迁移（首次必做）
-cd backend && alembic upgrade head && cd ..
+# 3. 启动后端与前端（或双击 run_backend.bat、run_frontend.bat）
+cd backend && ..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# 另开终端：
+cd frontend && npm run dev
 
 # 4. 初始化平台（创建 LS 项目、用户等；需先在 http://localhost:8080 创建 API Token 并填入 .env）
 python scripts/init_platform.py
@@ -55,7 +59,6 @@ python scripts/generate_mock_data.py
 ## 目录结构
 
 ```
-├── docker-compose.yml          # 服务编排
 ├── label-studio/configs/       # Label Studio 标注模板
 ├── ml-backend/                 # ML Backend 自动标注服务
 ├── backend/                    # FastAPI 管理后端

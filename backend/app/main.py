@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -5,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine, Base
-from app.models import User, Project, TaskBatch, ReviewRecord, AuditLog
+from app.models import User, Project, TaskBatch, ReviewRecord, AuditLog, FrameAnnotation, BatchFrame
 from app.core.security import hash_password
 
 from app.api import auth, users, projects, tasks, annotations, review, progress, export
@@ -13,13 +14,15 @@ from app.api import auth, users, projects, tasks, annotations, review, progress,
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    os.makedirs(settings.DATA_DIR, exist_ok=True)
+    os.makedirs(settings.EXPORT_DIR, exist_ok=True)
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     Base.metadata.create_all(bind=engine)
     _ensure_admin_user()
     yield
 
 
 def _ensure_admin_user():
-    """Create default admin user if none exists."""
     from app.database import SessionLocal
     from app.models.user import UserRole
 
@@ -42,7 +45,7 @@ def _ensure_admin_user():
 app = FastAPI(
     title="羽毛球训练动作标注管理系统",
     description="Badminton Training Action Annotation Management Platform",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -66,4 +69,8 @@ app.include_router(export.router, prefix="/api")
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "healthy", "service": "badminton-management-backend"}
+    return {
+        "status": "healthy",
+        "service": "badminton-management-backend",
+        "ml_backend_enabled": settings.ENABLE_ML_BACKEND,
+    }

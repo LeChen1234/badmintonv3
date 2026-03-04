@@ -27,7 +27,7 @@
 
         <el-menu-item index="/tasks">
           <el-icon><Tickets /></el-icon>
-          <template #title>任务管理</template>
+          <template #title>任务与标注</template>
         </el-menu-item>
 
         <el-menu-item index="/progress">

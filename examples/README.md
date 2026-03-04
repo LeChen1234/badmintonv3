@@ -6,7 +6,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `env.minimal.sample` | 最小可用环境变量样例。复制到**项目根目录**并重命名为 `.env`，按注释修改（尤其 `LABEL_STUDIO_API_KEY`）后即可配合 Docker / 本地启动使用。 |
+| `env.minimal.sample` | 最小可用环境变量样例。复制到**项目根目录**并重命名为 `.env`，按注释修改（尤其 `LABEL_STUDIO_API_KEY`）后即可本地启动使用。 |
 | `api-examples.http` | REST API 调用示例。可用 VS Code [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) 直接运行，或参照改为 curl 命令。 |
 
 ## 快速使用
@@ -18,10 +18,9 @@
    # 编辑 .env，至少设置 LABEL_STUDIO_API_KEY（首次启动 Label Studio 后在其设置中创建）
    ```
 
-2. **启动并初始化**
+2. **安装依赖、迁移并初始化**
    ```bash
-   docker-compose up -d
-   cd backend && alembic upgrade head && cd ..
+   .\scripts\install_and_run.ps1
    python scripts/init_platform.py
    python scripts/generate_mock_data.py
    ```

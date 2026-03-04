@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { authApi } from '@/api'
 import router from '@/router'
 
@@ -13,6 +13,13 @@ interface UserInfo {
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('token') || '')
   const user = ref<UserInfo | null>(null)
+
+  const displayName = computed(() => user.value?.display_name || '用户')
+  const role = computed(() => user.value?.role || null)
+
+  function hasRole(...roles: string[]): boolean {
+    return !!user.value && roles.includes(user.value.role)
+  }
 
   async function login(username: string, password: string) {
     const res = await authApi.login(username, password)
@@ -34,5 +41,5 @@ export const useAuthStore = defineStore('auth', () => {
     router.push('/login')
   }
 
-  return { token, user, login, fetchUser, logout }
+  return { token, user, displayName, role, hasRole, login, fetchUser, logout }
 })

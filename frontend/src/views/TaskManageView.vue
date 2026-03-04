@@ -27,11 +27,14 @@
             {{ row.completed_frames }} / {{ row.total_frames }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="240">
+        <el-table-column label="操作" width="300">
           <template #default="{ row }">
             <el-button size="small" @click="openAssign(row)">分配</el-button>
-            <el-button size="small" type="warning" @click="triggerMl(row.id)">ML 初标</el-button>
-            <el-button size="small" type="success" @click="openLS(row)">标注</el-button>
+            <el-button size="small" type="warning" @click="triggerMl(row.id)"
+              :disabled="!mlEnabled" :title="mlEnabled ? 'ML 初标' : '大模型标注未启用'">
+              ML 初标(可选)
+            </el-button>
+            <el-button size="small" type="success" @click="goAnnotate(row)">标注</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -82,8 +85,13 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { taskApi, projectApi, userApi } from '@/api'
 import { ElMessage } from 'element-plus'
+import request from '@/api/request'
+
+const router = useRouter()
+const mlEnabled = ref(false)
 
 const tasks = ref<any[]>([])
 const projects = ref<any[]>([])
@@ -166,12 +174,19 @@ async function triggerMl(batchId: number) {
   } catch { /* handled */ }
 }
 
-function openLS(row: any) {
-  window.open(`http://localhost:8080/projects`, '_blank')
+function goAnnotate(row: any) {
+  router.push(`/annotate/${row.id}`)
+}
+
+async function checkMlEnabled() {
+  try {
+    const res = await request.get('/health')
+    mlEnabled.value = res.data?.ml_backend_enabled === true
+  } catch { mlEnabled.value = false }
 }
 
 watch(filterProject, loadTasks)
-onMounted(() => { loadTasks(); loadProjects(); loadStudents() })
+onMounted(() => { loadTasks(); loadProjects(); loadStudents(); checkMlEnabled() })
 </script>
 
 <style scoped>

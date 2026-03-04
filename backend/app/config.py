@@ -1,47 +1,47 @@
-from pydantic_settings import BaseSettings
+import os
+from pathlib import Path
+
+from pydantic import AliasChoices, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class Settings(BaseSettings):
-    POSTGRES_HOST: str = "localhost"
-    POSTGRES_PORT: int = 5432
-    POSTGRES_USER: str = "badminton"
-    POSTGRES_PASSWORD: str = "badminton_secret_2024"
-    POSTGRES_DB: str = "badminton_annotation"
+    SECRET_KEY: str = Field(
+        default="dev-secret-key-change-in-production",
+        validation_alias=AliasChoices("BACKEND_SECRET_KEY", "SECRET_KEY"),
+    )
+    ALGORITHM: str = Field(
+        default="HS256",
+        validation_alias=AliasChoices("BACKEND_ALGORITHM", "ALGORITHM"),
+    )
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
+        default=480,
+        validation_alias=AliasChoices("BACKEND_ACCESS_TOKEN_EXPIRE_MINUTES", "ACCESS_TOKEN_EXPIRE_MINUTES"),
+    )
+    CORS_ORIGINS: str = Field(
+        default='["*"]',
+        validation_alias=AliasChoices("BACKEND_CORS_ORIGINS", "CORS_ORIGINS"),
+    )
 
-    REDIS_HOST: str = "localhost"
-    REDIS_PORT: int = 6379
+    SQLITE_DB_PATH: str = str(PROJECT_ROOT / "data" / "badminton.db")
 
-    SECRET_KEY: str = "dev-secret-key-change-in-production"
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
-
-    CORS_ORIGINS: str = '["http://localhost:3000","http://localhost:8080"]'
-
-    LABEL_STUDIO_HOST: str = "http://localhost:8080"
-    LABEL_STUDIO_API_KEY: str = ""
-
-    MINIO_ENDPOINT: str = "localhost:9000"
-    MINIO_ROOT_USER: str = "minioadmin"
-    MINIO_ROOT_PASSWORD: str = "minioadmin_secret"
-    MINIO_BUCKET: str = "badminton-frames"
-    MINIO_USE_SSL: bool = False
-
+    ENABLE_ML_BACKEND: bool = False
     ML_BACKEND_HOST: str = "http://localhost:9090"
+
+    DATA_DIR: str = str(PROJECT_ROOT / "data")
+    EXPORT_DIR: str = str(PROJECT_ROOT / "data" / "exports")
+    UPLOAD_DIR: str = str(PROJECT_ROOT / "data" / "uploads")
+
+    ALLOW_PUBLIC_REGISTER: bool = True
 
     @property
     def database_url(self) -> str:
-        return (
-            f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
-            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-        )
-
-    @property
-    def async_database_url(self) -> str:
-        return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
-            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-        )
+        db_dir = os.path.dirname(self.SQLITE_DB_PATH)
+        os.makedirs(db_dir, exist_ok=True)
+        return f"sqlite:///{self.SQLITE_DB_PATH}"
 
     @property
     def cors_origin_list(self) -> List[str]:
@@ -49,10 +49,13 @@ class Settings(BaseSettings):
         try:
             return json.loads(self.CORS_ORIGINS)
         except (json.JSONDecodeError, TypeError):
-            return ["http://localhost:3000"]
+            return ["*"]
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(
+        extra="ignore",
+        env_file=(".env", "../.env"),
+        env_file_encoding="utf-8",
+    )
 
 
 settings = Settings()
