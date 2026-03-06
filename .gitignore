@@ -47,9 +47,9 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
-# Data / runtime (optional: keep mock data in repo)
+# Data / runtime (SQLite, uploads, exports)
 data/
-!data/.gitkeep
+!data/mock/
 data/mock/*.jpg
 data/mock/frames/
 
