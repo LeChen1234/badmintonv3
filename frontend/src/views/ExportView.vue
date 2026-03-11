@@ -8,12 +8,19 @@
             <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="导出格式">
+          <el-radio-group v-model="exportFormat">
+            <el-radio-button value="json">JSON（含标注人）</el-radio-button>
+            <el-radio-button value="coco">COCO</el-radio-button>
+            <el-radio-button value="csv">CSV</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="已确认标注数">
           <el-tag type="success" size="large">{{ confirmedCount }} 条</el-tag>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="exporting" @click="doExport">
-            导出已确认数据集 (JSON)
+            导出已确认数据集
           </el-button>
         </el-form-item>
       </el-form>
@@ -40,6 +47,7 @@ import { ElMessage } from 'element-plus'
 
 const projects = ref<any[]>([])
 const selectedProject = ref<number | null>(null)
+const exportFormat = ref<'json' | 'coco' | 'csv'>('json')
 const confirmedCount = ref(0)
 const exporting = ref(false)
 const downloading = ref(false)
@@ -62,7 +70,7 @@ async function doExport() {
   if (!selectedProject.value) { ElMessage.warning('请选择项目'); return }
   exporting.value = true
   try {
-    const res = await exportApi.export(selectedProject.value, { format: 'json', only_locked: false })
+    const res = await exportApi.export(selectedProject.value, { format: exportFormat.value, only_locked: false })
     exportResult.value = res.data
     ElMessage.success('导出完成，可以下载')
   } catch { /* handled */ }

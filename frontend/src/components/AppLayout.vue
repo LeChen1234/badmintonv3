@@ -77,7 +77,7 @@
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item disabled>
-                  {{ UserRoleLabel[auth.role!] }}
+                  {{ UserRoleLabel[auth.role! as UserRole] }}
                 </el-dropdown-item>
                 <el-dropdown-item divided command="logout">
                   <el-icon><SwitchButton /></el-icon>

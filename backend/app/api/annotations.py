@@ -17,6 +17,8 @@ from app.schemas.annotation import (
 )
 from app.core.security import get_current_user
 from app.core.permissions import require_roles
+from app.services import task_service
+from app.utils.audit import log_audit
 
 router = APIRouter(prefix="/annotations", tags=["标注管理"])
 
@@ -199,6 +201,8 @@ def confirm_annotations(
     for ann in annotations:
         ann.status = AnnotationStatus.CONFIRMED
     db.commit()
+    task_service.sync_batch_completed_frames(db, req.task_batch_id)
+    log_audit(db, current_user.id, "confirm_annotations", f"task_batch_id={req.task_batch_id}, count={len(annotations)}")
     for ann in annotations:
         db.refresh(ann)
     return annotations

@@ -9,6 +9,7 @@ from app.models.task_batch import TaskBatch
 from app.schemas.review import ReviewSubmit, ReviewAction, ReviewRecordOut
 from app.core.security import get_current_user
 from app.services import review_service
+from app.utils.audit import log_audit
 
 router = APIRouter(prefix="/review", tags=["审核流程"])
 
@@ -25,6 +26,7 @@ def submit_review(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
 
     batch = review_service.submit_for_review(db, batch, current_user, data.comment)
+    log_audit(db, current_user.id, "submit_review", f"task_id={task_id}, status={batch.status.value}")
     return {"status": batch.status.value, "message": "提交成功"}
 
 
@@ -40,6 +42,7 @@ def approve_review(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
 
     batch = review_service.approve(db, batch, current_user, data.comment)
+    log_audit(db, current_user.id, "approve_review", f"task_id={task_id}")
     return {"status": batch.status.value, "message": "审核通过"}
 
 
@@ -55,6 +58,7 @@ def reject_review(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
 
     batch = review_service.reject(db, batch, current_user, data.comment)
+    log_audit(db, current_user.id, "reject_review", f"task_id={task_id}, comment={data.comment or ''}")
     return {"status": batch.status.value, "message": "已打回"}
 
 

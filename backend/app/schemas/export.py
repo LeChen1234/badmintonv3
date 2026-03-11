@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class ExportRequest(BaseModel):
-    format: str = Field(default="coco", description="coco / csv / vlm")
+    format: str = Field(default="json", description="json / coco / csv")
     only_locked: bool = True
 
 

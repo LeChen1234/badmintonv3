@@ -6,10 +6,11 @@
         <p>Badminton Action Annotation Platform</p>
       </div>
 
-      <div class="tab-switch">
+      <div class="tab-switch" v-if="allowRegister !== false">
         <span :class="{ active: mode === 'login' }" @click="mode = 'login'">登录</span>
         <span :class="{ active: mode === 'register' }" @click="mode = 'register'">注册</span>
       </div>
+      <div v-else class="tab-switch single"><span class="active">登录</span></div>
 
       <el-form v-if="mode === 'login'" ref="loginFormRef" :model="loginForm" :rules="loginRules" label-position="top">
         <el-form-item label="用户名" prop="username">
@@ -52,14 +53,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { authApi } from '@/api'
+import { authApi, configApi } from '@/api'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
 const authStore = useAuthStore()
 const mode = ref<'login' | 'register'>('login')
+const allowRegister = ref<boolean | null>(null)
 const loginFormRef = ref<FormInstance>()
 const registerFormRef = ref<FormInstance>()
 const loading = ref(false)
@@ -127,6 +129,16 @@ async function handleRegister() {
     loading.value = false
   }
 }
+
+onMounted(async () => {
+  try {
+    const res = await configApi.getConfig()
+    allowRegister.value = res.data?.allow_public_register ?? true
+    if (!allowRegister.value) mode.value = 'login'
+  } catch {
+    allowRegister.value = true
+  }
+})
 </script>
 
 <style scoped>

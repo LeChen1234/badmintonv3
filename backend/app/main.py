@@ -74,3 +74,12 @@ def health_check():
         "service": "badminton-management-backend",
         "ml_backend_enabled": settings.ENABLE_ML_BACKEND,
     }
+
+
+@app.get("/api/config")
+def get_config():
+    """公开配置，供前端决定是否显示注册入口、ML 初标等。"""
+    return {
+        "allow_public_register": settings.ALLOW_PUBLIC_REGISTER,
+        "ml_backend_enabled": settings.ENABLE_ML_BACKEND,
+    }

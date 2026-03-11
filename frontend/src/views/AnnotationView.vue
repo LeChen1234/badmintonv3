@@ -50,9 +50,27 @@
         <el-row :gutter="20">
           <el-col :span="16">
             <div class="frame-area">
-              <!-- 帧图片 + 标注可视化叠加 -->
+              <!-- 帧图片 + 关键点画布 + 标注可视化叠加 -->
               <div class="frame-wrapper" v-if="frameImageUrl">
-                <img :src="frameImageUrl" class="frame-img" alt="当前帧" @error="onImageError" />
+                <div class="frame-img-wrap" ref="frameWrapRef">
+                  <img
+                    ref="frameImgRef"
+                    :src="frameImageUrl"
+                    class="frame-img"
+                    alt="当前帧"
+                    @error="onImageError"
+                    @load="drawKeypointsCanvas"
+                  />
+                  <canvas
+                    ref="canvasRef"
+                    class="keypoints-canvas"
+                    @click="onCanvasClick"
+                    @mousedown="onCanvasMouseDown"
+                    @mousemove="onCanvasMouseMove"
+                    @mouseup="onCanvasMouseUp"
+                    @mouseleave="onCanvasMouseUp"
+                  />
+                </div>
                 <div class="annotation-overlay" v-if="currentAnnotation || form.action_type || form.action_phase || form.quality_rating">
                   <div class="overlay-tags">
                     <el-tag v-if="form.action_type" type="primary" size="small">{{ actionTypeLabel(form.action_type) }}</el-tag>
@@ -135,6 +153,31 @@
               </el-form-item>
 
               <el-divider />
+              <el-form-item label="关键点标注（25 点）">
+                <div class="keypoint-hint">点击下方按钮选择节点，再在左侧画面点击设点或拖拽已有点调整；不同部位颜色不同。</div>
+                <div class="keypoint-buttons">
+                  <el-button
+                    v-for="(kp, idx) in keypointsList"
+                    :key="kp.name"
+                    size="small"
+                    :type="selectedKeypointIndex === idx ? 'primary' : undefined"
+                    :class="{ 'keypoint-btn-set': kp.visibility > 0 }"
+                    @click="selectedKeypointIndex = idx"
+                  >
+                    <span class="keypoint-btn-dot" :style="{ background: KEYPOINT_COLORS[idx] }" />
+                    {{ KEYPOINT_LABELS[kp.name] || kp.name }}
+                  </el-button>
+                </div>
+                <div class="keypoint-actions">
+                  <el-button size="small" type="primary" :loading="predictingKeypoints" @click="applyPredictKeypoints">
+                    算法辅助标注（多人识别）
+                  </el-button>
+                  <el-button size="small" @click="clearCurrentKeypoint">清除当前点</el-button>
+                  <el-button size="small" @click="clearAllKeypoints">清除全部</el-button>
+                </div>
+              </el-form-item>
+
+              <el-divider />
 
               <div class="action-buttons">
                 <el-button type="primary" @click="saveAnnotation" :loading="saving">
@@ -168,11 +211,26 @@
         <el-button type="primary" @click="goReUpload">去上传</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showPersonSelect" title="选择要应用的人" width="400px">
+      <p>检测到 {{ predictedPersons.length }} 人，请选择要应用到当前帧骨架的一人：</p>
+      <div class="person-select-btns">
+        <el-button
+          v-for="(_, idx) in predictedPersons"
+          :key="idx"
+          type="primary"
+          plain
+          @click="applyPredictedPerson(idx)"
+        >
+          第 {{ idx + 1 }} 人
+        </el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { annotationApi, taskApi } from '@/api'
 import request from '@/api/request'
@@ -180,6 +238,15 @@ import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 import { Picture, UploadFilled } from '@element-plus/icons-vue'
 import type { UploadFile, UploadFiles, UploadInstance } from 'element-plus'
+import {
+  KEYPOINT_NAMES,
+  SKELETON_EDGES,
+  KEYPOINT_LABELS,
+  KEYPOINT_COLORS,
+  createEmptyKeypoints,
+  keypointsFromApi,
+  type KeypointItem,
+} from '@/constants/keypoints'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -208,6 +275,19 @@ const form = reactive({
   notes: '',
 })
 
+const keypointsList = ref<KeypointItem[]>(createEmptyKeypoints())
+const selectedKeypointIndex = ref(0)
+const frameImgRef = ref<HTMLImageElement | null>(null)
+const canvasRef = ref<HTMLCanvasElement | null>(null)
+const frameWrapRef = ref<HTMLDivElement | null>(null)
+const draggingPointIndex = ref<number | null>(null)
+const predictingKeypoints = ref(false)
+/** 本次按下后是否发生了拖拽，用于区分点击与拖拽 */
+const didDragThisPointer = ref(false)
+/** 算法检测到的多人关键点，用于弹窗选择 */
+const predictedPersons = ref<{ keypoints: { name: string; x: number; y: number; visibility: number }[] }[]>([])
+const showPersonSelect = ref(false)
+
 const actionTypeLabel = (v: string) =>
   ({ smash: '杀球', clear: '高远球', drop_shot: '吊球', net_shot: '搓球', lift: '挑球', push: '推球', rush: '扑球', drive: '抽球', serve: '发球', receive: '接发球', other: '其他' }[v] || v)
 const actionPhaseLabel = (v: string) =>
@@ -220,16 +300,19 @@ const canConfirm = computed(() => {
   return role === 'admin' || role === 'expert' || role === 'leader'
 })
 
+const statusLabels: Record<string, string> = { draft: '草稿', submitted: '已提交', confirmed: '已确认', rejected: '已退回' }
+const statusTagTypes: Record<string, string> = { draft: '', submitted: 'warning', confirmed: 'success', rejected: 'danger' }
+
 const statusLabel = computed(() => {
   if (!currentAnnotation.value) return '未标注'
-  const s = currentAnnotation.value.status
-  return { draft: '草稿', submitted: '已提交', confirmed: '已确认', rejected: '已退回' }[s] || s
+  const s = currentAnnotation.value.status as string
+  return statusLabels[s] ?? s
 })
 
 const statusTagType = computed(() => {
   if (!currentAnnotation.value) return 'info'
-  const s = currentAnnotation.value.status
-  return { draft: '', submitted: 'warning', confirmed: 'success', rejected: 'danger' }[s] || 'info'
+  const s = currentAnnotation.value.status as string
+  return statusTagTypes[s] ?? 'info'
 })
 
 async function loadBatchInfo() {
@@ -281,12 +364,14 @@ async function loadAnnotation() {
       form.action_phase = res.data[0].action_phase || ''
       form.quality_rating = res.data[0].quality_rating || ''
       form.notes = res.data[0].notes || ''
+      keypointsList.value = keypointsFromApi(res.data[0].keypoints)
     } else {
       currentAnnotation.value = null
       form.action_type = ''
       form.action_phase = ''
       form.quality_rating = ''
       form.notes = ''
+      keypointsList.value = createEmptyKeypoints()
     }
   } catch { /* handled */ }
   await loadFrameImage()
@@ -300,11 +385,17 @@ async function loadAnnotatedCount() {
   } catch { /* handled */ }
 }
 
+function getKeypointsPayload() {
+  return keypointsList.value.filter((kp) => kp.visibility > 0).map((kp) => ({ name: kp.name, x: kp.x, y: kp.y, visibility: kp.visibility }))
+}
+
 async function saveAnnotation() {
   saving.value = true
   try {
+    const kpPayload = getKeypointsPayload()
     if (currentAnnotation.value) {
       await annotationApi.update(currentAnnotation.value.id, {
+        keypoints: kpPayload.length ? kpPayload : null,
         action_type: form.action_type || null,
         action_phase: form.action_phase || null,
         quality_rating: form.quality_rating || null,
@@ -315,6 +406,7 @@ async function saveAnnotation() {
       await annotationApi.create({
         task_batch_id: batchId,
         frame_index: currentFrame.value,
+        keypoints: kpPayload.length ? kpPayload : null,
         action_type: form.action_type || null,
         action_phase: form.action_phase || null,
         quality_rating: form.quality_rating || null,
@@ -406,15 +498,230 @@ function goReUpload() {
   loadBatchInfo()
 }
 
+function drawKeypointsCanvas() {
+  nextTick(() => {
+    const canvas = canvasRef.value
+    const img = frameImgRef.value
+    if (!canvas || !img || !img.complete) return
+    const w = img.offsetWidth
+    const h = img.offsetHeight
+    if (w <= 0 || h <= 0) return
+    canvas.width = w
+    canvas.height = h
+    canvas.style.width = w + 'px'
+    canvas.style.height = h + 'px'
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.clearRect(0, 0, w, h)
+    const kps = keypointsList.value
+    ctx.strokeStyle = 'rgba(0, 200, 100, 0.8)'
+    ctx.lineWidth = 2
+    for (const [i, j] of SKELETON_EDGES) {
+      if (i >= kps.length || j >= kps.length) continue
+      const a = kps[i]
+      const b = kps[j]
+      if (a.visibility > 0 && b.visibility > 0) {
+        const x1 = (a.x / 100) * w
+        const y1 = (a.y / 100) * h
+        const x2 = (b.x / 100) * w
+        const y2 = (b.y / 100) * h
+        ctx.beginPath()
+        ctx.moveTo(x1, y1)
+        ctx.lineTo(x2, y2)
+        ctx.stroke()
+      }
+    }
+    for (let i = 0; i < kps.length; i++) {
+      const kp = kps[i]
+      if (kp.visibility <= 0) continue
+      const x = (kp.x / 100) * w
+      const y = (kp.y / 100) * h
+      const color = KEYPOINT_COLORS[i] || '#409eff'
+      ctx.fillStyle = color
+      ctx.strokeStyle = i === selectedKeypointIndex.value ? '#ff0' : '#fff'
+      ctx.lineWidth = i === selectedKeypointIndex.value ? 2 : 1
+      ctx.beginPath()
+      ctx.arc(x, y, 6, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.stroke()
+    }
+  })
+}
+
+function onCanvasClick(e: MouseEvent) {
+  if (didDragThisPointer.value) {
+    didDragThisPointer.value = false
+    return
+  }
+  const canvas = canvasRef.value
+  if (!canvas) return
+  const hit = hitTestKeypoint(canvas, e.clientX, e.clientY)
+  if (hit >= 0) {
+    selectedKeypointIndex.value = hit
+    return
+  }
+  const rect = canvas.getBoundingClientRect()
+  const x = ((e.clientX - rect.left) / rect.width) * 100
+  const y = ((e.clientY - rect.top) / rect.height) * 100
+  const idx = selectedKeypointIndex.value
+  if (idx >= 0 && idx < keypointsList.value.length) {
+    keypointsList.value[idx] = {
+      ...keypointsList.value[idx],
+      x: Math.max(0, Math.min(100, x)),
+      y: Math.max(0, Math.min(100, y)),
+      visibility: 2,
+    }
+    keypointsList.value = [...keypointsList.value]
+    drawKeypointsCanvas()
+  }
+}
+
+/** 命中半径（百分比），便于在图上点选/拖拽节点 */
+const HIT_RADIUS_PCT = 6
+
+function hitTestKeypoint(canvas: HTMLCanvasElement, clientX: number, clientY: number): number {
+  const rect = canvas.getBoundingClientRect()
+  const px = ((clientX - rect.left) / rect.width) * 100
+  const py = ((clientY - rect.top) / rect.height) * 100
+  const kps = keypointsList.value
+  for (let i = kps.length - 1; i >= 0; i--) {
+    if (kps[i].visibility <= 0) continue
+    if (Math.hypot(kps[i].x - px, kps[i].y - py) < HIT_RADIUS_PCT) return i
+  }
+  return -1
+}
+
+function onCanvasMouseDown(e: MouseEvent) {
+  const canvas = canvasRef.value
+  if (!canvas) return
+  didDragThisPointer.value = false
+  const rect = canvas.getBoundingClientRect()
+  const x = ((e.clientX - rect.left) / rect.width) * 100
+  const y = ((e.clientY - rect.top) / rect.height) * 100
+  let idx = hitTestKeypoint(canvas, e.clientX, e.clientY)
+  if (idx >= 0) {
+    draggingPointIndex.value = idx
+    selectedKeypointIndex.value = idx
+  } else {
+    idx = selectedKeypointIndex.value
+    if (idx >= 0 && idx < keypointsList.value.length) {
+      draggingPointIndex.value = idx
+      keypointsList.value[idx] = {
+        ...keypointsList.value[idx],
+        x: Math.max(0, Math.min(100, x)),
+        y: Math.max(0, Math.min(100, y)),
+        visibility: 2,
+      }
+      keypointsList.value = [...keypointsList.value]
+      drawKeypointsCanvas()
+    }
+  }
+}
+
+function onCanvasMouseMove(e: MouseEvent) {
+  if (draggingPointIndex.value === null) return
+  didDragThisPointer.value = true
+  const canvas = canvasRef.value
+  if (!canvas) return
+  const rect = canvas.getBoundingClientRect()
+  const x = ((e.clientX - rect.left) / rect.width) * 100
+  const y = ((e.clientY - rect.top) / rect.height) * 100
+  const idx = draggingPointIndex.value
+  keypointsList.value[idx] = {
+    ...keypointsList.value[idx],
+    x: Math.max(0, Math.min(100, x)),
+    y: Math.max(0, Math.min(100, y)),
+  }
+  keypointsList.value = [...keypointsList.value]
+  drawKeypointsCanvas()
+}
+
+function onCanvasMouseUp() {
+  draggingPointIndex.value = null
+}
+
+function clearCurrentKeypoint() {
+  const idx = selectedKeypointIndex.value
+  if (idx >= 0 && idx < keypointsList.value.length) {
+    keypointsList.value[idx] = { ...keypointsList.value[idx], x: 0, y: 0, visibility: 0 }
+    keypointsList.value = [...keypointsList.value]
+    drawKeypointsCanvas()
+  }
+}
+
+function clearAllKeypoints() {
+  keypointsList.value = createEmptyKeypoints()
+  drawKeypointsCanvas()
+}
+
+async function applyPredictKeypoints() {
+  if (totalFrames.value < 1 || currentFrame.value < 1) return
+  predictingKeypoints.value = true
+  predictedPersons.value = []
+  showPersonSelect.value = false
+  try {
+    const res = await taskApi.predictKeypoints(batchId, currentFrame.value)
+    const persons = res.data?.persons
+    if (!Array.isArray(persons) || persons.length === 0) {
+      ElMessage.warning('未检测到人体关键点，请确认画面中有人体')
+      return
+    }
+    if (persons.length === 1) {
+      keypointsList.value = keypointsFromApi(persons[0].keypoints)
+      drawKeypointsCanvas()
+      ElMessage.success('已应用算法骨架，可继续微调或补标球拍等点位')
+      return
+    }
+    predictedPersons.value = persons
+    showPersonSelect.value = true
+  } catch {
+    // 错误已由 request 拦截器提示
+  } finally {
+    predictingKeypoints.value = false
+  }
+}
+
+function applyPredictedPerson(personIndex: number) {
+  const persons = predictedPersons.value
+  if (personIndex >= 0 && personIndex < persons.length) {
+    keypointsList.value = keypointsFromApi(persons[personIndex].keypoints)
+    drawKeypointsCanvas()
+    ElMessage.success('已应用第 ' + (personIndex + 1) + ' 人骨架，可继续微调或补标球拍')
+  }
+  showPersonSelect.value = false
+  predictedPersons.value = []
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (totalFrames.value < 1) return
+  const target = e.target as HTMLElement
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || (target as HTMLInputElement).isContentEditable) return
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault()
+    prevFrame()
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault()
+    nextFrame()
+  } else if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault()
+    saveAnnotation()
+  }
+}
+
 watch(currentFrame, () => loadAnnotation())
+watch(keypointsList, () => drawKeypointsCanvas(), { deep: true })
 onMounted(async () => {
   await loadBatchInfo()
   if (totalFrames.value > 0) {
     await loadAnnotation()
     await loadAnnotatedCount()
   }
+  window.addEventListener('keydown', onKeydown)
 })
-onUnmounted(() => revokeFrameImageUrl())
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  revokeFrameImageUrl()
+})
 </script>
 
 <style scoped>
@@ -474,10 +781,48 @@ onUnmounted(() => revokeFrameImageUrl())
   align-items: center;
   justify-content: center;
 }
+.frame-img-wrap {
+  position: relative;
+  display: inline-block;
+}
 .frame-img {
+  display: block;
   max-width: 100%;
   max-height: 500px;
   object-fit: contain;
+  vertical-align: top;
+}
+.keypoints-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: auto;
+  cursor: crosshair;
+}
+.keypoint-hint {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+.keypoint-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.keypoint-buttons .el-button {
+  margin: 0;
+}
+.keypoint-btn-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.keypoint-btn-set {
+  font-weight: 600;
 }
 .annotation-overlay {
   position: absolute;
@@ -534,5 +879,11 @@ onUnmounted(() => revokeFrameImageUrl())
 }
 .batch-actions {
   margin-top: 8px;
+}
+.person-select-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }
 </style>

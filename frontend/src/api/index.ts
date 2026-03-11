@@ -1,5 +1,9 @@
 import request from './request'
 
+export const configApi = {
+  getConfig: () => request.get<{ allow_public_register: boolean; ml_backend_enabled: boolean }>('/config'),
+}
+
 export const authApi = {
   login: (username: string, password: string) =>
     request.post('/auth/login', { username, password }),
@@ -39,6 +43,11 @@ export const taskApi = {
   getFrames: (batchId: number) => request.get(`/tasks/${batchId}/frames`),
   getFrameImageUrl: (batchId: number, frameIndex: number) =>
     `/tasks/${batchId}/frame/${frameIndex}/image`,
+  /** 算法辅助：当前帧多人姿态估计，返回 persons 数组，每人一组 25 关键点 */
+  predictKeypoints: (batchId: number, frameIndex: number) =>
+    request.get<{
+      persons: { keypoints: { name: string; x: number; y: number; visibility: number }[] }[];
+    }>(`/tasks/${batchId}/frame/${frameIndex}/predict-keypoints`, { timeout: 60000 }),
 }
 
 export const annotationApi = {

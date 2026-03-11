@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.task_batch import TaskBatch, TaskStatus
 from app.models.user import User
+from app.models.annotation import FrameAnnotation, AnnotationStatus
 from app.schemas.task_batch import TaskBatchCreate, TaskBatchUpdate
 
 logger = logging.getLogger(__name__)
@@ -77,3 +78,18 @@ def transition_status(db: Session, batch: TaskBatch, new_status: TaskStatus) -> 
     db.commit()
     db.refresh(batch)
     return batch
+
+
+def sync_batch_completed_frames(db: Session, batch_id: int) -> int:
+    """根据已确认标注数更新任务批次的 completed_frames，返回更新后的数量。"""
+    from sqlalchemy import func
+    count = db.query(func.count(FrameAnnotation.id)).filter(
+        FrameAnnotation.task_batch_id == batch_id,
+        FrameAnnotation.status == AnnotationStatus.CONFIRMED,
+    ).scalar() or 0
+    batch = db.query(TaskBatch).filter(TaskBatch.id == batch_id).first()
+    if batch:
+        batch.completed_frames = count
+        db.commit()
+        db.refresh(batch)
+    return count

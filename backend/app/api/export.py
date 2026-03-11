@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import os
 from datetime import datetime
@@ -14,6 +16,7 @@ from app.models.annotation import FrameAnnotation, AnnotationStatus
 from app.models.task_batch import TaskBatch
 from app.schemas.export import ExportRequest, ExportOut
 from app.core.security import get_current_user
+from app.utils.audit import log_audit
 
 router = APIRouter(prefix="/export", tags=["数据导出"])
 
@@ -64,6 +67,89 @@ def _to_export_json(annotations, batch_map):
     return records
 
 
+def _records_to_coco(records: list, project_name: str) -> dict:
+    """将 records（_to_export_json 格式）转为 COCO 风格。"""
+    kp_names = [
+        "head_top", "head_center", "chin", "neck", "chest_center", "spine_mid", "pelvis_center",
+        "left_shoulder", "left_elbow", "left_wrist", "left_palm",
+        "right_shoulder", "right_elbow", "right_wrist", "right_palm",
+        "left_hip", "left_knee", "left_ankle", "left_toe",
+        "right_hip", "right_knee", "right_ankle", "right_toe",
+        "racket_grip", "racket_head",
+    ]
+    categories = [{
+        "id": 1,
+        "name": "person",
+        "supercategory": "person",
+        "keypoints": kp_names,
+        "skeleton": [
+            [0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6],
+            [3, 7], [7, 8], [8, 9], [9, 10], [3, 11], [11, 12], [12, 13], [13, 14],
+            [6, 15], [15, 16], [16, 17], [17, 18], [6, 19], [19, 20], [20, 21], [21, 22],
+            [13, 23], [23, 24],
+        ],
+    }]
+    images = []
+    coco_annotations = []
+    for idx, r in enumerate(records, start=1):
+        images.append({
+            "id": idx,
+            "file_name": f"batch_{r['task_batch_id']}_frame_{r['frame_index']}.jpg",
+            "width": 640,
+            "height": 480,
+        })
+        keypoints = [0.0] * (25 * 3)
+        img_w, img_h = 640, 480
+        if isinstance(r.get("keypoints"), list):
+            for kp in r["keypoints"]:
+                name = kp.get("name") if isinstance(kp, dict) else None
+                if name and name in kp_names:
+                    i = kp_names.index(name)
+                    x, y = float(kp.get("x", 0)), float(kp.get("y", 0))
+                    if 0 <= x <= 100 and 0 <= y <= 100:
+                        x, y = x / 100.0 * img_w, y / 100.0 * img_h
+                    keypoints[i * 3] = round(x, 1)
+                    keypoints[i * 3 + 1] = round(y, 1)
+                    keypoints[i * 3 + 2] = 2 if (kp.get("visibility") or 0) > 0 else 0
+        coco_annotations.append({
+            "id": idx,
+            "image_id": idx,
+            "category_id": 1,
+            "keypoints": keypoints,
+            "num_keypoints": sum(1 for i in range(25) if keypoints[i * 3 + 2] > 0),
+            "annotator_id": r.get("annotator_id"),
+            "annotator_name": r.get("annotator_name"),
+            "action_type": r.get("action_type"),
+            "action_phase": r.get("action_phase"),
+            "quality_rating": r.get("quality_rating"),
+        })
+    return {
+        "info": {"description": project_name},
+        "images": images,
+        "annotations": coco_annotations,
+        "categories": categories,
+    }
+
+
+def _records_to_csv(records: list) -> str:
+    """将 records 转为 CSV 表格（含标注人）。"""
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["task_batch_id", "frame_index", "annotator_id", "annotator_name", "action_type", "action_phase", "quality_rating", "notes"])
+    for r in records:
+        w.writerow([
+            r.get("task_batch_id"),
+            r.get("frame_index"),
+            r.get("annotator_id"),
+            r.get("annotator_name"),
+            r.get("action_type") or "",
+            r.get("action_phase") or "",
+            r.get("quality_rating") or "",
+            (r.get("notes") or "").replace("\n", " "),
+        ])
+    return out.getvalue()
+
+
 @router.post("/{project_id}", response_model=ExportOut)
 def export_project(
     project_id: int,
@@ -78,23 +164,38 @@ def export_project(
     annotations, batch_map = _gather_confirmed_annotations(db, project_id)
     records = _to_export_json(annotations, batch_map)
 
+    fmt = (req.format or "json").lower()
+    if fmt not in ("json", "coco", "csv"):
+        fmt = "json"
+
     os.makedirs(settings.EXPORT_DIR, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"project_{project_id}_confirmed_{timestamp}.json"
+    ext = "json" if fmt in ("json", "coco") else "csv"
+    filename = f"project_{project_id}_confirmed_{timestamp}.{ext}"
     filepath = os.path.join(settings.EXPORT_DIR, filename)
 
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump({
-            "project_id": project_id,
-            "project_name": project.name,
-            "export_time": datetime.now().isoformat(),
-            "total_annotations": len(records),
-            "annotations": records,
-        }, f, ensure_ascii=False, indent=2)
+    if fmt == "json":
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump({
+                "project_id": project_id,
+                "project_name": project.name,
+                "export_time": datetime.now().isoformat(),
+                "total_annotations": len(records),
+                "annotations": records,
+            }, f, ensure_ascii=False, indent=2)
+    elif fmt == "coco":
+        coco = _records_to_coco(records, project.name)
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(coco, f, ensure_ascii=False, indent=2)
+    else:
+        with open(filepath, "w", encoding="utf-8", newline="") as f:
+            f.write(_records_to_csv(records))
+
+    log_audit(db, current_user.id, "export_project", f"project_id={project_id}, format={fmt}, count={len(records)}")
 
     return ExportOut(
         filename=filename,
-        format="json",
+        format=fmt,
         record_count=len(records),
         download_url=f"/api/export/{project_id}/download?filename={filename}",
     )
@@ -111,11 +212,8 @@ def download_export(
     if not os.path.exists(filepath):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "导出文件不存在")
 
-    return FileResponse(
-        filepath,
-        media_type="application/json",
-        filename=filename,
-    )
+    media_type = "text/csv" if filename.lower().endswith(".csv") else "application/json"
+    return FileResponse(filepath, media_type=media_type, filename=filename)
 
 
 @router.get("/{project_id}/confirmed-count")
