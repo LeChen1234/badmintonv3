@@ -30,9 +30,14 @@ GET {{base}}/projects
 Authorization: Bearer {{token}}
 
 ### 6. 获取任务批次列表
-GET {{base}}/tasks/batches
+GET {{base}}/tasks
 Authorization: Bearer {{token}}
 
-### 7. 导出数据（示例：CSV）
-GET {{base}}/export/csv?batch_id=1
+### 7. 导出项目确认数据（示例：CSV，项目 ID=1）
+POST {{base}}/export/1
+Content-Type: application/json
 Authorization: Bearer {{token}}
+
+{
+  "format": "csv"
+}

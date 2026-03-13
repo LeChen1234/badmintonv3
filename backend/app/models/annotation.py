@@ -1,5 +1,6 @@
 import enum
 from datetime import datetime
+from typing import Any, Optional
 
 from sqlalchemy import String, Integer, Float, DateTime, ForeignKey, Enum, Text, Boolean, func, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -25,11 +26,11 @@ class FrameAnnotation(Base):
     annotator_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     annotator_name: Mapped[str] = mapped_column(String(128), nullable=False)
 
-    keypoints: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    action_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    action_phase: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    quality_rating: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    keypoints: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    action_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    action_phase: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    quality_rating: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     is_ml_generated: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[AnnotationStatus] = mapped_column(

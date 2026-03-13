@@ -7,6 +7,7 @@ and sets up user mappings.
 import os
 import sys
 import argparse
+from typing import Optional
 
 import httpx
 
@@ -60,7 +61,7 @@ def create_ls_project(client: httpx.Client, name: str, template_type: str = "com
     return project
 
 
-def create_backend_user(client: httpx.Client, token: str, user_data: dict) -> dict | None:
+def create_backend_user(client: httpx.Client, token: str, user_data: dict) -> Optional[dict]:
     resp = client.post(
         f"{BACKEND_HOST}/api/users",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
@@ -81,8 +82,7 @@ def create_backend_user(client: httpx.Client, token: str, user_data: dict) -> di
 def login_admin(client: httpx.Client) -> str:
     resp = client.post(
         f"{BACKEND_HOST}/api/auth/login",
-        data={"username": "admin", "password": "admin123"},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        json={"username": "admin", "password": "admin123"},
     )
     resp.raise_for_status()
     return resp.json()["access_token"]

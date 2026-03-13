@@ -1,5 +1,6 @@
 import enum
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import String, Integer, DateTime, ForeignKey, Enum, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -26,7 +27,7 @@ class ReviewRecord(Base):
     reviewer_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     review_level: Mapped[ReviewLevel] = mapped_column(Enum(ReviewLevel), nullable=False)
     result: Mapped[ReviewResult] = mapped_column(Enum(ReviewResult), nullable=False)
-    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     task_batch = relationship("TaskBatch", back_populates="review_records")

@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 
 from app.config import settings
 from app.constants.keypoints import KEYPOINT_NAMES
@@ -118,7 +118,7 @@ def _ensure_pose_model() -> Optional[Path]:
     return None
 
 
-def predict_keypoints_multi_from_image_path(image_path: str | Path) -> List[List[Dict[str, Any]]]:
+def predict_keypoints_multi_from_image_path(image_path: Union[str, Path]) -> List[List[Dict[str, Any]]]:
     """
     对一张图片做姿态估计，支持多人。返回 persons: 每人一组 25 关键点（0–100%）。
     优先使用 full/heavy 模型（人体识别能力更强），缺失时再试 lite；均存于 D 盘 data/models/。
@@ -184,7 +184,7 @@ def predict_keypoints_multi_from_image_path(image_path: str | Path) -> List[List
     return []
 
 
-def predict_keypoints_from_image_path(image_path: str | Path) -> List[Dict[str, Any]]:
+def predict_keypoints_from_image_path(image_path: Union[str, Path]) -> List[Dict[str, Any]]:
     """单人接口：返回第一人的 25 关键点，兼容原 API。"""
     persons = predict_keypoints_multi_from_image_path(image_path)
     if persons:

@@ -30,6 +30,8 @@ class Settings(BaseSettings):
 
     ENABLE_ML_BACKEND: bool = False
     ML_BACKEND_HOST: str = "http://localhost:9090"
+    LABEL_STUDIO_HOST: str = "http://localhost:8080"
+    LABEL_STUDIO_API_KEY: str = ""
 
     DATA_DIR: str = str(PROJECT_ROOT / "data")
     EXPORT_DIR: str = str(PROJECT_ROOT / "data" / "exports")

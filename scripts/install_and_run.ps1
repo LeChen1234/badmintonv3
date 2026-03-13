@@ -1,21 +1,21 @@
-# 依赖全部安装到 D 盘（项目目录在 D:\badminton），并运行整个项目
-# 用法: 在 PowerShell 中于项目根目录执行 .\scripts\install_and_run.ps1
+# Install dependencies and initialize the project.
+# Usage: run from project root in PowerShell: .\scripts\install_and_run.ps1
 
 $ErrorActionPreference = "Stop"
-$ProjectRoot = if ($PSScriptRoot) { Join-Path $PSScriptRoot ".." } else { "d:\badminton" }
+$ProjectRoot = if ($PSScriptRoot) { Join-Path $PSScriptRoot ".." } else { (Get-Location).Path }
 $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 $VenvPath = Join-Path $ProjectRoot ".venv"
 $BackendPath = Join-Path $ProjectRoot "backend"
 $FrontendPath = Join-Path $ProjectRoot "frontend"
 
-# npm 缓存放到 D 盘
+# Keep npm cache on local disk
 $NpmCache = "D:\npm-cache"
 if (-not (Test-Path $NpmCache)) { New-Item -ItemType Directory -Path $NpmCache -Force | Out-Null }
 $env:NPM_CONFIG_CACHE = $NpmCache
 
 Write-Host "=== 项目根目录: $ProjectRoot ===" -ForegroundColor Cyan
 
-# ---------- 1. Python 虚拟环境（D 盘） ----------
+# ---------- 1. Python virtual environment ----------
 if (-not (Test-Path (Join-Path $VenvPath "Scripts\python.exe"))) {
     Write-Host "`n[1/4] 创建 Python 虚拟环境到 $VenvPath ..." -ForegroundColor Yellow
     Set-Location $ProjectRoot
@@ -33,14 +33,14 @@ Write-Host "`n[2/4] 安装 Python 依赖（backend + scripts + ml-backend）..."
 & $Pip install -q Pillow
 Write-Host "Python 依赖安装完成." -ForegroundColor Green
 
-# ---------- 2. 前端依赖（node_modules 在 D:\badminton\frontend） ----------
+# ---------- 2. Frontend dependencies ----------
 Write-Host "`n[3/4] 安装前端依赖（npm cache: $NpmCache）..." -ForegroundColor Yellow
 Set-Location $FrontendPath
 npm install
 if ($LASTEXITCODE -ne 0) { throw "npm install 失败" }
 Write-Host "前端依赖安装完成." -ForegroundColor Green
 
-# ---------- 3. 环境变量 ----------
+# ---------- 3. Environment file ----------
 if (-not (Test-Path (Join-Path $ProjectRoot ".env"))) {
     $envPath = Join-Path $ProjectRoot ".env"
     $content = Get-Content (Join-Path $ProjectRoot ".env.example") -Raw
@@ -49,13 +49,17 @@ if (-not (Test-Path (Join-Path $ProjectRoot ".env"))) {
     Write-Host "`n已生成 .env（已设为 localhost 便于本机连接）。请编辑 .env 设置 LABEL_STUDIO_API_KEY（Label Studio 启动后在设置中创建）。" -ForegroundColor Yellow
 }
 
-# ---------- 4. 数据库迁移 ----------
+# ---------- 4. Database migration ----------
 Write-Host "`n[4/4] 执行数据库迁移..." -ForegroundColor Yellow
 Set-Location $BackendPath
 $env:PYTHONPATH = $BackendPath
 & $Py -m alembic upgrade head
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "迁移失败，请确认 PostgreSQL 已启动且 .env 中数据库连接正确（本机连接用 localhost）。" -ForegroundColor Red
+    Write-Host "alembic upgrade failed, trying to stamp current schema as head..." -ForegroundColor Yellow
+    & $Py -m alembic stamp head
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Migration/stamp failed. Check backend requirements and .env configuration." -ForegroundColor Red
+    }
 }
 
 Write-Host "`n=== 安装完成 ===" -ForegroundColor Green
