@@ -1,32 +1,45 @@
 @echo off
+setlocal EnableExtensions
 chcp 65001 >nul
-cd /d "d:\badminton\backend"
 
-:: 查找可用的 Python
-if exist "d:\badminton\.venv\Scripts\python.exe" (
-    set "PYTHON=d:\badminton\.venv\Scripts\python.exe"
-) else (
+set "ROOT=%~dp0"
+if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+set "BACKEND=%ROOT%\backend"
+set "PYTHON=%ROOT%\.venv\Scripts\python.exe"
+
+if not exist "%BACKEND%\app\main.py" (
+    echo [ERROR] backend\app\main.py not found.
+    pause
+    exit /b 1
+)
+
+if not exist "%PYTHON%" (
     where python >nul 2>&1
-    if %errorlevel% equ 0 (
-        set "PYTHON=python"
-    ) else (
-        echo [错误] 未找到 Python，请先安装 Python 3.10+
+    if errorlevel 1 (
+        echo [ERROR] Python not found on PATH.
+        pause
+        exit /b 1
+    )
+    set "PYTHON=python"
+)
+
+pushd "%BACKEND%"
+"%PYTHON%" -c "import fastapi" >nul 2>&1
+if errorlevel 1 (
+    echo Installing backend dependencies...
+    "%PYTHON%" -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+    if errorlevel 1 (
+        popd
+        echo [ERROR] Backend dependency installation failed.
         pause
         exit /b 1
     )
 )
 
-:: 安装依赖（如果缺少）
-%PYTHON% -c "import fastapi" >nul 2>&1
-if %errorlevel% neq 0 (
-    echo 正在安装后端依赖...
-    %PYTHON% -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-)
-
 echo ========================================
-echo   后端启动中 http://0.0.0.0:8000
-echo   数据库: SQLite (data/badminton.db)
-echo   大模型标注: 可选 (默认关闭)
+echo   Backend starting: http://0.0.0.0:8000
+echo   Health endpoint : http://localhost:8000/api/health
 echo ========================================
-%PYTHON% -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+"%PYTHON%" -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+popd
 pause
