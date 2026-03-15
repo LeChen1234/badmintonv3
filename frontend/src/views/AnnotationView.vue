@@ -377,12 +377,28 @@ async function loadAnnotation() {
   await loadFrameImage()
 }
 
-async function loadAnnotatedCount() {
+async function loadAnnotatedCount(): Promise<Set<number>> {
   try {
     const res = await annotationApi.list(batchId, { limit: 2000 })
     const frames = new Set((res.data || []).map((a: any) => a.frame_index))
     annotatedCount.value = frames.size
-  } catch { /* handled */ }
+    return frames
+  } catch {
+    return new Set<number>()
+  }
+}
+
+async function jumpToFirstUnannotatedFrame() {
+  if (totalFrames.value <= 0) return
+  const annotatedFrames = await loadAnnotatedCount()
+  let targetFrame = 1
+  for (let i = 1; i <= totalFrames.value; i++) {
+    if (!annotatedFrames.has(i)) {
+      targetFrame = i
+      break
+    }
+  }
+  currentFrame.value = targetFrame
 }
 
 function getKeypointsPayload() {
@@ -485,8 +501,10 @@ async function submitUpload() {
     pendingFiles.value = []
     uploadRef.value?.clearFiles()
     await loadBatchInfo()
-    await loadAnnotation()
-    await loadAnnotatedCount()
+    if (totalFrames.value > 0) {
+      await jumpToFirstUnannotatedFrame()
+      await loadAnnotation()
+    }
   } catch { /* handled */ }
   finally { uploading.value = false }
 }
@@ -713,8 +731,8 @@ watch(keypointsList, () => drawKeypointsCanvas(), { deep: true })
 onMounted(async () => {
   await loadBatchInfo()
   if (totalFrames.value > 0) {
+    await jumpToFirstUnannotatedFrame()
     await loadAnnotation()
-    await loadAnnotatedCount()
   }
   window.addEventListener('keydown', onKeydown)
 })
