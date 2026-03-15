@@ -24,6 +24,12 @@ if (-not (Test-Path (Join-Path $VenvPath "Scripts\python.exe"))) {
 }
 $Py = Join-Path $VenvPath "Scripts\python.exe"
 $Pip = Join-Path $VenvPath "Scripts\pip.exe"
+$PyVer = & $Py -c "import sys; print(sys.version_info[0]*100 + sys.version_info[1])"
+if (-not $PyVer) { throw "无法检测 Python 版本" }
+if ([int]$PyVer -lt 309) { throw "Python 版本过低（<3.9），请升级后重建 .venv" }
+if ([int]$PyVer -ge 313) {
+    Write-Host "检测到 Python 3.13+，将自动安装兼容的 mediapipe 版本。" -ForegroundColor Cyan
+}
 
 Write-Host "`n[2/4] 安装 Python 依赖（backend + scripts + ml-backend）..." -ForegroundColor Yellow
 & $Pip install -q --upgrade pip

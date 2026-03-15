@@ -12,4 +12,6 @@ python-multipart==0.0.20
 httpx==0.28.1
 opencv-python-headless==4.10.0.84
 Pillow==11.0.0
-mediapipe==0.10.14
+# mediapipe 0.10.14 does not provide cp313 wheels.
+mediapipe==0.10.14; python_version < "3.13"
+mediapipe==0.10.31; python_version >= "3.13"

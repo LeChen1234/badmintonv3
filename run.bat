@@ -8,6 +8,8 @@ set "BACKEND=%ROOT%\backend"
 set "FRONTEND=%ROOT%\frontend"
 set "VENV=%ROOT%\.venv"
 set "PY=%VENV%\Scripts\python.exe"
+set "PIP_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple"
+set "PIP_OFFICIAL=https://pypi.org/simple"
 
 echo ========================================
 echo   Project root: %ROOT%
@@ -60,13 +62,20 @@ if %PYVER% LSS 309 (
     pause
     exit /b 1
 )
+if %PYVER% GEQ 313 (
+    echo [INFO] Python 3.13+ detected. Installing a compatible mediapipe version from requirements.
+)
 
 echo [2/4] Installing backend dependencies...
-"%PY%" -m pip install -r "%BACKEND%\requirements.txt" -i https://pypi.tuna.tsinghua.edu.cn/simple
+"%PY%" -m pip install -r "%BACKEND%\requirements.txt" -i "%PIP_MIRROR%"
 if errorlevel 1 (
-    echo [ERROR] Backend dependency installation failed.
-    pause
-    exit /b 1
+    echo [WARN] Mirror index failed, retrying with official PyPI...
+    "%PY%" -m pip install -r "%BACKEND%\requirements.txt" -i "%PIP_OFFICIAL%"
+    if errorlevel 1 (
+        echo [ERROR] Backend dependency installation failed.
+        pause
+        exit /b 1
+    )
 )
 
 echo [3/4] Installing frontend dependencies...

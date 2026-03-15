@@ -16,7 +16,8 @@
 
 ## 快速开始
 
-本地需安装 Python 3.10+、Node.js 18+、PostgreSQL 16、Redis。
+本地需安装 Python 3.9+（推荐 3.10-3.13）、Node.js 18+。  
+若仅运行管理前后端（`run.bat` / `run_backend.bat` / `run_frontend.bat`），可不安装 PostgreSQL、Redis。
 
 ```bash
 # 1. 复制环境变量文件并修改（也可用 examples/env.minimal.sample）
