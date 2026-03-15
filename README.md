@@ -10,13 +10,13 @@
 | ML Backend | label-studio-ml-backend | 9090 | 自动标注服务（姿态估计 + 动作识别） |
 | 管理后端 | FastAPI + SQLAlchemy | 8000 | RBAC / 任务分配 / 审核流程 / 数据导出 |
 | 管理前端 | Vue 3 + Element Plus | 3000 | 管理仪表盘 |
-| 数据库 | PostgreSQL 16 | 5432 | 标注数据 + 业务数据 |
+| 数据库 | SQLite | - | 本地单文件数据库（`data/badminton.db`） |
 | 对象存储 | MinIO | 9000/9001 | 视频帧 / 骨架图 |
 | 缓存 | Redis 7 | 6379 | 任务队列 / 缓存 |
 
 ## 快速开始
 
-本地需安装 Python 3.10+、Node.js 18+、PostgreSQL 16、Redis。
+本地需安装 Python 3.10+、Node.js 18+。
 
 ```bash
 # 1. 复制环境变量文件并修改（也可用 examples/env.minimal.sample）
