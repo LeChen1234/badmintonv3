@@ -46,6 +46,9 @@
           <el-select v-model="form.project_id" placeholder="选择项目">
             <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
           </el-select>
+          <div v-if="!projects.length" style="margin-top: 8px; color: #909399; font-size: 12px;">
+            当前暂无项目，请先创建项目。
+          </div>
         </el-form-item>
         <el-form-item label="批次名称">
           <el-input v-model="form.name" />
@@ -143,6 +146,10 @@ async function loadStudents() {
 }
 
 async function createBatch() {
+  if (!form.project_id) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
   try {
     await taskApi.create(form)
     ElMessage.success('创建成功')

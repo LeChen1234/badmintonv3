@@ -14,6 +14,10 @@
           <el-icon><User /></el-icon>
           <span>用户管理</span>
         </el-menu-item>
+        <el-menu-item index="/projects" v-if="canManageProjects">
+          <el-icon><FolderOpened /></el-icon>
+          <span>项目管理</span>
+        </el-menu-item>
         <el-menu-item index="/tasks">
           <el-icon><List /></el-icon>
           <span>任务管理</span>
@@ -50,7 +54,7 @@
 import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { DataAnalysis, User, List, TrendCharts, Finished, Download } from '@element-plus/icons-vue'
+import { DataAnalysis, User, List, TrendCharts, Finished, Download, FolderOpened } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -60,6 +64,7 @@ const roleMap: Record<string, string> = {
 }
 const roleLabel = computed(() => roleMap[authStore.user?.role || ''] || '未知')
 const isAdmin = computed(() => authStore.user?.role === 'admin')
+const canManageProjects = computed(() => ['admin', 'expert'].includes(authStore.user?.role || ''))
 
 function handleLogout() {
   authStore.logout()
