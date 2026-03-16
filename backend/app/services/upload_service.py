@@ -95,7 +95,7 @@ def _extract_video_to_paths(
     *,
     max_frames: int = 500,
     use_yolo: bool = False,
-    motion_threshold: Optional[float] = None,
+    motion_percentile: Optional[float] = None,
 ) -> List[Path]:
     if use_yolo:
         from app.services.yolo_preprocess_service import extract_and_filter_video
@@ -104,7 +104,7 @@ def _extract_video_to_paths(
             video_path,
             out_dir,
             target_fps=10.0,
-            motion_threshold=motion_threshold,
+            motion_percentile=motion_percentile,
             max_frames=max_frames,
         )
     return _extract_frames_from_video(video_path, out_dir, max_frames=max_frames)
@@ -152,7 +152,7 @@ def process_uploaded_video_in_background(
     *,
     max_frames: int,
     use_yolo: bool,
-    motion_threshold: Optional[float],
+    motion_percentile: Optional[float],
     source_name: str,
 ) -> None:
     db = SessionLocal()
@@ -185,7 +185,7 @@ def process_uploaded_video_in_background(
             frames_dir,
             max_frames=max_frames,
             use_yolo=use_yolo,
-            motion_threshold=motion_threshold,
+            motion_percentile=motion_percentile,
         )
         if not saved_paths:
             raise RuntimeError("未提取到任何帧，请检查视频内容或参数设置")
@@ -229,12 +229,12 @@ def save_uploaded_video(
     filename: str,
     max_frames: int = 500,
     use_yolo: bool = False,
-    motion_threshold: float | None = None,
+    motion_percentile: float | None = None,
 ) -> List[Tuple[int, str]]:
     """保存上传的视频并提取帧，返回 [(frame_index, file_path), ...]。
 
-    use_yolo=True 且 motion_threshold 不为 None 时，使用 YOLOv8 骨架分析
-    只保留帧间动作幅度 >= motion_threshold 的帧；否则均匀抽帧。
+    use_yolo=True 且 motion_percentile 不为 None 时，先计算帧间动作分数，
+    再按百分位动态阈值筛选；否则均匀抽帧。
     """
     video_path = stage_uploaded_video(batch_id, content, filename)
     frames_dir = _batch_processing_dir(batch_id) / "frames"
@@ -244,7 +244,7 @@ def save_uploaded_video(
         frames_dir,
         max_frames=max_frames,
         use_yolo=use_yolo,
-        motion_threshold=motion_threshold,
+        motion_percentile=motion_percentile,
     )
     return _promote_processed_frames(batch_id, saved_paths)
 

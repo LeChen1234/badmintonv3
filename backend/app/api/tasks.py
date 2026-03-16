@@ -199,7 +199,7 @@ async def upload_media(
     file: Optional[UploadFile] = File(None),
     max_frames: Optional[int] = Form(None),
     use_yolo_filter: bool = Form(False),
-    motion_threshold: Optional[float] = Form(None),
+    motion_percentile: Optional[float] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -211,6 +211,8 @@ async def upload_media(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "无权为该任务上传媒体")
 
     video_max = max(1, min(2000, max_frames or 500))
+    if motion_percentile is not None and not (0 <= motion_percentile <= 100):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "动作百分位必须在 0-100 之间")
 
     if file and file.filename:
         ext = (file.filename or "").lower()
@@ -236,16 +238,16 @@ async def upload_media(
                 batch_id,
                 max_frames=video_max,
                 use_yolo=use_yolo_filter,
-                motion_threshold=motion_threshold,
+                motion_percentile=motion_percentile,
                 source_name=file.filename or "video.mp4",
             )
             logger.info(
-                "[upload] batch=%d queued file=%s max_frames=%d use_yolo=%s motion_threshold=%s",
+                "[upload] batch=%d queued file=%s max_frames=%d use_yolo=%s motion_percentile=%s",
                 batch_id,
                 file.filename,
                 video_max,
                 use_yolo_filter,
-                motion_threshold,
+                motion_percentile,
             )
             return JSONResponse(
                 status_code=status.HTTP_202_ACCEPTED,

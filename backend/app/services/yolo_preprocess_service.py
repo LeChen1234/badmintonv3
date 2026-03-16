@@ -1,5 +1,5 @@
 """YOLO 视频预处理服务：以目标帧率抽帧，计算人体关节点帧间欧氏距离，
-按动作幅度阈值过滤，只保留动作变化明显的帧写入磁盘。
+先得到该视频的动作分数分布，再按百分位动态计算阈值后筛帧写盘。
 
 若 ultralytics 未安装或模型不存在，自动降级为纯 OpenCV 均匀抽帧，
 不会抛异常，只记录警告日志。
@@ -7,6 +7,7 @@
 
 import logging
 import math
+import shutil
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -51,12 +52,29 @@ def _motion_score_between(prev_kpts, curr_kpts) -> Tuple[float, int]:
     return total, count
 
 
+def _percentile(values: List[float], q: float) -> float:
+    """计算百分位（线性插值），q 取值范围 [0, 100]。"""
+    if not values:
+        return 0.0
+    q = max(0.0, min(100.0, float(q)))
+    xs = sorted(float(v) for v in values)
+    if len(xs) == 1:
+        return xs[0]
+    pos = (len(xs) - 1) * q / 100.0
+    lo = int(math.floor(pos))
+    hi = int(math.ceil(pos))
+    if lo == hi:
+        return xs[lo]
+    frac = pos - lo
+    return xs[lo] * (1.0 - frac) + xs[hi] * frac
+
+
 def extract_and_filter_video(
     video_path: Path,
     out_dir: Path,
     *,
     target_fps: float = 10.0,
-    motion_threshold: Optional[float] = None,
+    motion_percentile: Optional[float] = None,
     min_people: int = 2,
     min_shared_joints: int = 8,
     max_frames: int = 2000,
@@ -66,16 +84,16 @@ def extract_and_filter_video(
     参数
     ----
     target_fps:        期望抽帧帧率，默认 10 FPS。
-    motion_threshold:  帧间动作幅度（欧氏距离之和）最小值；None 表示不过滤，
-                       保留全部 target_fps 抽样帧。
-    min_people:        有效帧最少人数（仅在启用 motion_threshold 时生效）。
+    motion_percentile: 帧间动作分数的百分位阈值（如 90 表示保留 >= P90 的帧）；
+                       None 表示不过滤，保留全部 target_fps 抽样帧。
+    min_people:        有效帧最少人数（仅在启用 motion_percentile 时生效）。
     min_shared_joints: 两帧间至少有几个共同可见关节才计分。
     max_frames:        输出帧数上限。
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 无需过滤 → 直接均匀抽帧，无需 YOLO
-    if motion_threshold is None:
+    if motion_percentile is None:
         return _plain_extract(video_path, out_dir, target_fps, max_frames)
 
     # 需要过滤 → 尝试加载 YOLO
@@ -98,24 +116,32 @@ def extract_and_filter_video(
         logger.warning("yolo_preprocess: 无法打开视频 %s", video_path)
         return []
 
+    saved: List[Path] = []
+    candidate_dir: Optional[Path] = None
     try:
         logger.info(
-            "yolo_preprocess: 开始处理 %s  target_fps=%.1f threshold=%.2f min_people=%d",
-            video_path.name, target_fps, motion_threshold, min_people,
+            "yolo_preprocess: 开始处理 %s target_fps=%.1f percentile=P%.1f min_people=%d",
+            video_path.name,
+            target_fps,
+            motion_percentile,
+            min_people,
         )
         original_fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
         time_interval = 1.0 / max(0.1, target_fps)
         logger.info("yolo_preprocess: 加载模型 %s", model_path.name)
         model = YOLO(str(model_path))
 
-        saved: List[Path] = []
+        candidate_dir = out_dir / "_candidates"
+        shutil.rmtree(candidate_dir, ignore_errors=True)
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+
+        candidate_paths_and_scores: List[Tuple[Path, float]] = []
         prev_valid_kpts: Optional[list] = None  # 上一有效帧的 kpts 列表（已按 x 排序）
-        out_idx = 0
         frame_count = 0
+        candidate_idx = 0
         next_process_time = 0.0
 
-        # while cap.isOpened() and out_idx < max_frames:
-        while cap.isOpened(): # 若 yolo 过滤则不限制帧数
+        while cap.isOpened():
             ok, frame = cap.read()
             if not ok:
                 break
@@ -144,20 +170,45 @@ def extract_and_filter_video(
                             total_score += d
                             total_joints += cnt
 
-                        if total_joints >= min_shared_joints and total_score >= motion_threshold:
-                            out_path = out_dir / f"frame_{out_idx:08d}.jpg"
-                            cv2.imwrite(str(out_path), frame)
-                            saved.append(out_path)
-                            out_idx += 1
+                        if total_joints >= min_shared_joints:
+                            cand_path = candidate_dir / f"candidate_{candidate_idx:08d}.jpg"
+                            cv2.imwrite(str(cand_path), frame)
+                            candidate_paths_and_scores.append((cand_path, total_score))
+                            candidate_idx += 1
 
                         prev_valid_kpts = kpts_list
 
                 next_process_time += time_interval
             frame_count += 1
 
+        if not candidate_paths_and_scores:
+            return []
+
+        threshold = _percentile(
+            [score for _, score in candidate_paths_and_scores],
+            motion_percentile,
+        )
+        logger.info(
+            "yolo_preprocess: 动态阈值计算完成 percentile=P%.1f threshold=%.2f candidates=%d",
+            motion_percentile,
+            threshold,
+            len(candidate_paths_and_scores),
+        )
+
+        for cand_path, score in candidate_paths_and_scores:
+            if score < threshold:
+                continue
+            out_path = out_dir / f"frame_{len(saved):08d}.jpg"
+            shutil.move(str(cand_path), str(out_path))
+            saved.append(out_path)
+            if len(saved) >= max_frames:
+                break
+
         return saved
 
     finally:
+        if candidate_dir is not None:
+            shutil.rmtree(candidate_dir, ignore_errors=True)
         logger.info("yolo_preprocess: 完成，保存帧数=%d", len(saved))
         cap.release()
 

@@ -50,21 +50,32 @@
             <p class="upload-hint">支持多张图片 (jpg/png/gif等) 或一个视频 (mp4/avi/mov等)，视频将自动按帧提取</p>
           </div>
         </el-upload>
-        <!-- 视频选中时展示 YOLO 过滤选项 -->
-        <div v-if="isVideoSelected" class="yolo-filter-row">
-          <el-switch v-model="useYoloFilter" active-text="YOLO 动作过滤" inactive-text="均匀抽帧" />
-          <template v-if="useYoloFilter">
-            <span class="threshold-label">帧间动作阈值</span>
+
+        <div v-if="isVideoSelected" class="yolo-settings-card">
+          <div class="yolo-settings-head">
+            <span class="yolo-settings-title">视频预处理设置</span>
+            <el-switch v-model="useYoloFilter" active-text="启用 YOLO 动作过滤" inactive-text="仅均匀抽帧" />
+          </div>
+          <p class="yolo-settings-desc">建议只在视频上传时开启。系统会先计算本视频的帧间欧氏距离分布，再按你选择的百分位自动筛帧。</p>
+
+          <div v-if="useYoloFilter" class="threshold-controls">
+            <span class="threshold-label">动作百分位 (P)</span>
             <el-input-number
-              v-model="motionThreshold"
+              v-model="motionPercentile"
               :min="0"
-              :step="50"
+              :max="100"
+              :step="1"
               :precision="0"
-              style="width: 130px"
+              style="width: 160px"
             />
-            <span class="threshold-hint">P80≈450 &nbsp; P90≈693 &nbsp; P95≈1664</span>
-          </template>
+            <div class="threshold-preset-group">
+              <el-button size="small" plain @click="motionPercentile = 80">P80</el-button>
+              <el-button size="small" plain @click="motionPercentile = 90">P90</el-button>
+              <el-button size="small" plain @click="motionPercentile = 95">P95</el-button>
+            </div>
+          </div>
         </div>
+
         <div class="upload-actions">
           <el-button type="primary" :loading="uploading" @click="submitUpload" :disabled="!pendingFiles.length || isMediaProcessing">
             开始上传 ({{ pendingFiles.length }} 个文件)
@@ -295,7 +306,7 @@ const pendingFiles = ref<UploadFile[]>([])
 const uploadRef = ref<UploadInstance>()
 
 const useYoloFilter = ref(false)
-const motionThreshold = ref(450)
+const motionPercentile = ref(90)
 const mediaProcessStatus = ref<'idle' | 'queued' | 'processing' | 'completed' | 'failed'>('idle')
 const mediaProcessMessage = ref('')
 const mediaProcessStartedAt = ref<string | null>(null)
@@ -591,7 +602,7 @@ async function submitUpload() {
     if (file) formData.append('file', file)
     formData.append('use_yolo_filter', String(useYoloFilter.value))
     if (useYoloFilter.value) {
-      formData.append('motion_threshold', String(motionThreshold.value))
+      formData.append('motion_percentile', String(motionPercentile.value))
     }
   } else {
     pendingFiles.value.forEach((f) => {
@@ -892,28 +903,47 @@ onUnmounted(() => {
   color: #909399;
   margin-top: 8px;
 }
+.yolo-settings-card {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid #d9ecff;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #f5f9ff 0%, #f8fbff 100%);
+}
+.yolo-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.yolo-settings-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2d3d;
+}
+.yolo-settings-desc {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #5f6b7a;
+}
+.threshold-controls {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.threshold-label {
+  font-size: 13px;
+  color: #334155;
+}
+.threshold-preset-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .upload-actions {
-  .yolo-filter-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-top: 14px;
-    padding: 10px 14px;
-    background: #f0f9eb;
-    border-radius: 6px;
-    border: 1px solid #b3e19d;
-  }
-  .threshold-label {
-    font-size: 13px;
-    color: #606266;
-    white-space: nowrap;
-  }
-  .threshold-hint {
-    font-size: 12px;
-    color: #909399;
-    white-space: nowrap;
-  }
   margin-top: 16px;
 }
 
