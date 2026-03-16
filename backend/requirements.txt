@@ -13,3 +13,4 @@ httpx==0.28.1
 opencv-python-headless==4.10.0.84
 Pillow==11.0.0
 mediapipe==0.10.14
+ultralytics==8.4.22
