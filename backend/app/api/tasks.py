@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import List, Optional
 
+import logging
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -24,6 +26,8 @@ from app.services.upload_service import (
 
 router = APIRouter(prefix="/tasks", tags=["任务管理"])
 
+
+logger = logging.getLogger(__name__)
 
 def _enrich_batch(batch: TaskBatch) -> TaskBatchOut:
     return TaskBatchOut(
@@ -162,10 +166,19 @@ async def upload_media(
     files: List[UploadFile] = File(default=[]),
     file: Optional[UploadFile] = File(None),
     max_frames: Optional[int] = Form(None),
+    use_yolo_filter: bool = Form(False),
+    motion_threshold: Optional[float] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """上传多张图片或一个视频。图片时传 files；视频时传 file；视频可传 max_frames 控制抽帧上限（默认 500）。"""
+    """上传多张图片或一个视频。
+
+    图片时传 files；视频时传 file；
+    视频可传 max_frames 控制抽帧上限（默认 500）。
+    use_yolo_filter=true 时启用 YOLOv8 骨架分析预处理；
+    motion_threshold 指定帧间动作幅度最小阈值（欧氏距离之和），
+    仅在 use_yolo_filter=true 时生效。
+    """
     batch = task_service.get_task_batch(db, batch_id)
     if not batch:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
@@ -181,9 +194,22 @@ async def upload_media(
             content = await file.read()
             if len(content) > 500 * 1024 * 1024:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "视频大小不能超过 500MB")
-            entries = save_uploaded_video(batch_id, content, file.filename or "video.mp4", max_frames=video_max)
+            logger.info(
+                "[upload] batch=%d file=%s max_frames=%d use_yolo=%s motion_threshold=%s",
+                batch_id, file.filename, video_max, use_yolo_filter, motion_threshold,
+            )
+            entries = save_uploaded_video(
+                batch_id,
+                content,
+                file.filename or "video.mp4",
+                max_frames=video_max,
+                use_yolo=use_yolo_filter,
+                motion_threshold=motion_threshold,
+            )
             replace_frames_for_batch(db, batch, entries)
-            return {"upload_type": "video", "frame_count": len(entries), "message": f"已提取 {len(entries)} 帧"}
+            hint = "（已启用 YOLO 动作过滤）" if use_yolo_filter else ""
+            logger.info("[upload] batch=%d 完成，输出帧数=%d%s", batch_id, len(entries), hint)
+            return {"upload_type": "video", "frame_count": len(entries), "message": f"已提取 {len(entries)} 帧{hint}"}
 
     # 图片：多文件
     if not files:

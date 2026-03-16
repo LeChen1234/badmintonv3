@@ -39,6 +39,21 @@
             <p class="upload-hint">支持多张图片 (jpg/png/gif等) 或一个视频 (mp4/avi/mov等)，视频将自动按帧提取</p>
           </div>
         </el-upload>
+        <!-- 视频选中时展示 YOLO 过滤选项 -->
+        <div v-if="isVideoSelected" class="yolo-filter-row">
+          <el-switch v-model="useYoloFilter" active-text="YOLO 动作过滤" inactive-text="均匀抽帧" />
+          <template v-if="useYoloFilter">
+            <span class="threshold-label">帧间动作阈值</span>
+            <el-input-number
+              v-model="motionThreshold"
+              :min="0"
+              :step="50"
+              :precision="0"
+              style="width: 130px"
+            />
+            <span class="threshold-hint">P80≈450 &nbsp; P90≈693 &nbsp; P95≈1664</span>
+          </template>
+        </div>
         <div class="upload-actions">
           <el-button type="primary" :loading="uploading" @click="submitUpload" :disabled="!pendingFiles.length">
             开始上传 ({{ pendingFiles.length }} 个文件)
@@ -268,6 +283,14 @@ const frameImageUrl = ref<string | null>(null)
 const pendingFiles = ref<UploadFile[]>([])
 const uploadRef = ref<UploadInstance>()
 
+const useYoloFilter = ref(false)
+const motionThreshold = ref(450)
+const isVideoSelected = computed(
+  () =>
+    pendingFiles.value.length === 1 &&
+    /\.(mp4|avi|mov|mkv|webm|flv)$/i.test(pendingFiles.value[0]?.name || ''),
+)
+
 const form = reactive({
   action_type: '',
   action_phase: '',
@@ -336,6 +359,11 @@ function revokeFrameImageUrl() {
   }
 }
 
+function onImageError() {
+  revokeFrameImageUrl()
+  loadingImage.value = false
+}
+
 async function loadFrameImage() {
   if (totalFrames.value < 1 || currentFrame.value < 1) return
   revokeFrameImageUrl()
@@ -344,15 +372,8 @@ async function loadFrameImage() {
     const url = taskApi.getFrameImageUrl(batchId, currentFrame.value)
     const res = await request.get(url, { responseType: 'blob' })
     frameImageUrl.value = URL.createObjectURL(res.data)
-  } catch {
-    frameImageUrl.value = null
-  } finally {
-    loadingImage.value = false
-  }
-}
-
-function onImageError() {
-  revokeFrameImageUrl()
+  } catch { /* handled */ }
+  finally { loadingImage.value = false }
 }
 
 async function loadAnnotation() {
@@ -380,7 +401,7 @@ async function loadAnnotation() {
 async function loadAnnotatedCount(): Promise<Set<number>> {
   try {
     const res = await annotationApi.list(batchId, { limit: 2000 })
-    const frames = new Set<number>((res.data || []).map((a: any) => Number(a.frame_index)))
+    const frames: Set<number> = new Set((res.data || []).map((a: any) => Number(a.frame_index)))
     annotatedCount.value = frames.size
     return frames
   } catch {
@@ -489,6 +510,10 @@ async function submitUpload() {
   if (isVideo) {
     const file = pendingFiles.value[0].raw
     if (file) formData.append('file', file)
+    formData.append('use_yolo_filter', String(useYoloFilter.value))
+    if (useYoloFilter.value) {
+      formData.append('motion_threshold', String(motionThreshold.value))
+    }
   } else {
     pendingFiles.value.forEach((f) => {
       if (f.raw) formData.append('files', f.raw)
@@ -777,6 +802,27 @@ onUnmounted(() => {
   margin-top: 8px;
 }
 .upload-actions {
+  .yolo-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: #f0f9eb;
+    border-radius: 6px;
+    border: 1px solid #b3e19d;
+  }
+  .threshold-label {
+    font-size: 13px;
+    color: #606266;
+    white-space: nowrap;
+  }
+  .threshold-hint {
+    font-size: 12px;
+    color: #909399;
+    white-space: nowrap;
+  }
   margin-top: 16px;
 }
 

@@ -78,14 +78,37 @@ def _extract_frames_from_video(video_path: Path, out_dir: Path, max_frames: int 
     return saved
 
 
-def save_uploaded_video(batch_id: int, content: bytes, filename: str, max_frames: int = 500) -> List[Tuple[int, str]]:
-    """保存上传的视频并提取帧，返回 [(frame_index, file_path), ...]"""
+def save_uploaded_video(
+    batch_id: int,
+    content: bytes,
+    filename: str,
+    max_frames: int = 1000000,
+    use_yolo: bool = False,
+    motion_threshold: float | None = None,
+) -> List[Tuple[int, str]]:
+    """保存上传的视频并提取帧，返回 [(frame_index, file_path), ...]。
+
+    use_yolo=True 且 motion_threshold 不为 None 时，使用 YOLOv8 骨架分析
+    只保留帧间动作幅度 >= motion_threshold 的帧；否则均匀抽帧。
+    """
     base = _batch_upload_dir(batch_id)
     ext = Path(filename).suffix.lower() or ".mp4"
     video_path = base / f"video{ext}"
     video_path.write_bytes(content)
 
-    saved_paths = _extract_frames_from_video(video_path, base, max_frames=max_frames)
+    if use_yolo:
+        logger.info("使用 YOLOv8 骨架分析提取帧，motion_threshold=%.2f", motion_threshold)
+        from app.services.yolo_preprocess_service import extract_and_filter_video
+        saved_paths = extract_and_filter_video(
+            video_path,
+            base,
+            target_fps=10.0,
+            motion_threshold=motion_threshold,
+            max_frames=max_frames,
+        )
+    else:
+        saved_paths = _extract_frames_from_video(video_path, base, max_frames=max_frames)
+
     rel_prefix = f"batch_{batch_id}/"
     return [(i, rel_prefix + p.name) for i, p in enumerate(saved_paths, start=1)]
 
