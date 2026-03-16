@@ -380,7 +380,7 @@ async function loadAnnotation() {
 async function loadAnnotatedCount(): Promise<Set<number>> {
   try {
     const res = await annotationApi.list(batchId, { limit: 2000 })
-    const frames = new Set((res.data || []).map((a: any) => a.frame_index))
+    const frames = new Set<number>((res.data || []).map((a: any) => Number(a.frame_index)))
     annotatedCount.value = frames.size
     return frames
   } catch {

@@ -27,7 +27,7 @@
             {{ row.completed_frames }} / {{ row.total_frames }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="300">
+        <el-table-column label="操作" width="380">
           <template #default="{ row }">
             <el-button size="small" @click="openAssign(row)">分配</el-button>
             <el-button size="small" type="warning" @click="triggerMl(row.id)"
@@ -35,6 +35,7 @@
               ML 初标(可选)
             </el-button>
             <el-button size="small" type="success" @click="goAnnotate(row)">标注</el-button>
+            <el-button size="small" type="danger" @click="deleteBatch(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -90,7 +91,7 @@
 import { ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { taskApi, projectApi, userApi } from '@/api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/api/request'
 
 const router = useRouter()
@@ -179,6 +180,25 @@ async function triggerMl(batchId: number) {
     await taskApi.triggerMl(batchId)
     ElMessage.success('已触发 ML 初标')
   } catch { /* handled */ }
+}
+
+async function deleteBatch(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除任务批次「${row.name}」吗？该操作会同时删除该任务下上传的帧文件，且不可恢复。`,
+      '确认删除',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+    await taskApi.delete(row.id)
+    ElMessage.success('删除成功')
+    await loadTasks()
+  } catch {
+    // 取消删除或请求失败时，统一不额外提示
+  }
 }
 
 function goAnnotate(row: any) {

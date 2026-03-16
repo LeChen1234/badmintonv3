@@ -38,6 +38,6 @@ class TaskBatch(Base):
 
     project = relationship("Project", back_populates="task_batches")
     assignee = relationship("User", back_populates="task_batches", foreign_keys=[assigned_to])
-    review_records = relationship("ReviewRecord", back_populates="task_batch")
+    review_records = relationship("ReviewRecord", back_populates="task_batch", cascade="all, delete-orphan")
     annotations = relationship("FrameAnnotation", back_populates="task_batch", cascade="all, delete-orphan")
     batch_frames = relationship("BatchFrame", back_populates="task_batch", cascade="all, delete-orphan", order_by="BatchFrame.frame_index")

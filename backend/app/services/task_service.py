@@ -1,6 +1,8 @@
 """Task batch management service."""
 
 import logging
+import shutil
+from pathlib import Path
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -8,6 +10,8 @@ from sqlalchemy.orm import Session
 from app.models.task_batch import TaskBatch, TaskStatus
 from app.models.user import User
 from app.models.annotation import FrameAnnotation, AnnotationStatus
+from app.models.review_record import ReviewRecord
+from app.config import settings
 from app.schemas.task_batch import TaskBatchCreate, TaskBatchUpdate
 
 logger = logging.getLogger(__name__)
@@ -93,3 +97,16 @@ def sync_batch_completed_frames(db: Session, batch_id: int) -> int:
         db.commit()
         db.refresh(batch)
     return count
+
+
+def delete_task_batch(db: Session, batch: TaskBatch) -> None:
+    """删除任务批次及其上传目录。"""
+    upload_dir = Path(settings.UPLOAD_DIR) / f"batch_{batch.id}"
+
+    db.query(ReviewRecord).filter(ReviewRecord.task_batch_id == batch.id).delete(synchronize_session=False)
+    db.delete(batch)
+    db.commit()
+
+    # 数据库提交成功后再清理磁盘，减少数据不一致风险。
+    if upload_dir.exists():
+        shutil.rmtree(upload_dir, ignore_errors=True)

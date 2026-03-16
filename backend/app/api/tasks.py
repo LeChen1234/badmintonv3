@@ -17,7 +17,6 @@ from app.services import task_service
 from app.services.upload_service import (
     ALLOWED_IMAGE_EXT,
     ALLOWED_VIDEO_EXT,
-    add_frames_to_batch,
     replace_frames_for_batch,
     save_uploaded_video,
     _save_uploaded_images,
@@ -100,6 +99,20 @@ def update_batch(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
     batch = task_service.update_task_batch(db, batch, data)
     return _enrich_batch(batch)
+
+
+@router.delete("/{batch_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_batch(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_roles([UserRole.ADMIN, UserRole.EXPERT, UserRole.LEADER])(current_user)
+    batch = task_service.get_task_batch(db, batch_id)
+    if not batch:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
+    task_service.delete_task_batch(db, batch)
+    return None
 
 
 @router.post("/{batch_id}/assign", response_model=TaskBatchOut)

@@ -33,6 +33,7 @@ export const taskApi = {
   create: (data: any) => request.post('/tasks/batch', data),
   get: (id: number) => request.get(`/tasks/${id}`),
   update: (id: number, data: any) => request.put(`/tasks/${id}`, data),
+  delete: (id: number) => request.delete(`/tasks/${id}`),
   assign: (id: number, userId: number) => request.post(`/tasks/${id}/assign`, null, { params: { user_id: userId } }),
   triggerMl: (id: number) => request.post(`/tasks/${id}/trigger-ml`),
   upload: (batchId: number, formData: FormData) =>

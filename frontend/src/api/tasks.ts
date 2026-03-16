@@ -17,6 +17,10 @@ export function updateTaskBatch(id: number, data: TaskBatchUpdate) {
   return request.put<TaskBatch>(`/tasks/${id}`, data)
 }
 
+export function deleteTaskBatch(id: number) {
+  return request.delete(`/tasks/${id}`)
+}
+
 export function assignTask(batchId: number, userId: number) {
   return request.post(`/tasks/${batchId}/assign`, null, { params: { user_id: userId } })
 }
