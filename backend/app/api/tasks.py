@@ -147,7 +147,7 @@ def delete_batch(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_roles([UserRole.ADMIN, UserRole.EXPERT, UserRole.LEADER])(current_user)
+    require_roles([UserRole.ADMIN])(current_user)
     batch = task_service.get_task_batch(db, batch_id)
     if not batch:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
