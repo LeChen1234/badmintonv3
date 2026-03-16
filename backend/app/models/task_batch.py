@@ -17,6 +17,14 @@ class TaskStatus(str, enum.Enum):
     LOCKED = "locked"
 
 
+class MediaProcessStatus(str, enum.Enum):
+    IDLE = "idle"
+    QUEUED = "queued"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class TaskBatch(Base):
     __tablename__ = "task_batches"
 
@@ -32,6 +40,10 @@ class TaskBatch(Base):
     frame_end: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     total_frames: Mapped[int] = mapped_column(Integer, default=0)
     completed_frames: Mapped[int] = mapped_column(Integer, default=0)
+    media_process_status: Mapped[str] = mapped_column(String(32), nullable=False, default=MediaProcessStatus.IDLE.value)
+    media_process_message: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    media_process_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    media_process_finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     deadline: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

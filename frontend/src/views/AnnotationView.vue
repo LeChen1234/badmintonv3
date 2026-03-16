@@ -20,12 +20,23 @@
         </div>
       </template>
 
+      <el-alert
+        v-if="mediaProcessStatus !== 'idle'"
+        :title="mediaProcessTitle"
+        :description="mediaProcessMessage || undefined"
+        :type="mediaProcessAlertType"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px;"
+      />
+
       <!-- 无帧时：上传图片或视频 -->
       <div v-if="totalFrames === 0" class="upload-section">
         <el-upload
           ref="uploadRef"
           class="upload-area"
           drag
+          :disabled="isMediaProcessing"
           :auto-upload="false"
           :limit="200"
           :on-change="onFileChange"
@@ -55,7 +66,7 @@
           </template>
         </div>
         <div class="upload-actions">
-          <el-button type="primary" :loading="uploading" @click="submitUpload" :disabled="!pendingFiles.length">
+          <el-button type="primary" :loading="uploading" @click="submitUpload" :disabled="!pendingFiles.length || isMediaProcessing">
             开始上传 ({{ pendingFiles.length }} 个文件)
           </el-button>
         </div>
@@ -122,7 +133,7 @@
             </div>
 
             <div class="re-upload-row">
-              <el-button size="small" type="info" plain @click="showReUpload = true">重新上传图片/视频</el-button>
+              <el-button size="small" type="info" plain :disabled="isMediaProcessing" @click="showReUpload = true">重新上传图片/视频</el-button>
             </div>
           </el-col>
 
@@ -285,11 +296,32 @@ const uploadRef = ref<UploadInstance>()
 
 const useYoloFilter = ref(false)
 const motionThreshold = ref(450)
+const mediaProcessStatus = ref<'idle' | 'queued' | 'processing' | 'completed' | 'failed'>('idle')
+const mediaProcessMessage = ref('')
+const mediaProcessStartedAt = ref<string | null>(null)
+const mediaProcessFinishedAt = ref<string | null>(null)
+let mediaStatusPollTimer: number | null = null
+
 const isVideoSelected = computed(
   () =>
     pendingFiles.value.length === 1 &&
     /\.(mp4|avi|mov|mkv|webm|flv)$/i.test(pendingFiles.value[0]?.name || ''),
 )
+const isMediaProcessing = computed(
+  () => mediaProcessStatus.value === 'queued' || mediaProcessStatus.value === 'processing',
+)
+const mediaProcessTitle = computed(() => {
+  if (mediaProcessStatus.value === 'queued') return '视频已上传，等待后台处理'
+  if (mediaProcessStatus.value === 'processing') return '视频正在后台处理中'
+  if (mediaProcessStatus.value === 'completed') return '媒体处理完成'
+  if (mediaProcessStatus.value === 'failed') return '媒体处理失败'
+  return ''
+})
+const mediaProcessAlertType = computed(() => {
+  if (mediaProcessStatus.value === 'failed') return 'error'
+  if (mediaProcessStatus.value === 'completed') return 'success'
+  return 'info'
+})
 
 const form = reactive({
   action_type: '',
@@ -338,10 +370,57 @@ const statusTagType = computed(() => {
   return statusTagTypes[s] ?? 'info'
 })
 
+function applyMediaProcessState(data: any) {
+  mediaProcessStatus.value = (data?.media_process_status || 'idle') as typeof mediaProcessStatus.value
+  mediaProcessMessage.value = data?.media_process_message || ''
+  mediaProcessStartedAt.value = data?.media_process_started_at || null
+  mediaProcessFinishedAt.value = data?.media_process_finished_at || null
+}
+
+function stopMediaStatusPolling() {
+  if (mediaStatusPollTimer !== null) {
+    window.clearInterval(mediaStatusPollTimer)
+    mediaStatusPollTimer = null
+  }
+}
+
+function startMediaStatusPolling() {
+  if (mediaStatusPollTimer !== null) return
+  mediaStatusPollTimer = window.setInterval(() => {
+    void refreshMediaProcessStatus()
+  }, 3000)
+}
+
+async function refreshMediaProcessStatus() {
+  try {
+    const prevStatus = mediaProcessStatus.value
+    const res = await taskApi.getMediaProcessStatus(batchId)
+    applyMediaProcessState(res.data)
+    if (isMediaProcessing.value) {
+      return
+    }
+    stopMediaStatusPolling()
+    if (prevStatus !== mediaProcessStatus.value && mediaProcessStatus.value === 'completed') {
+      await loadBatchInfo()
+      if (totalFrames.value > 0) {
+        await jumpToFirstUnannotatedFrame()
+        await loadAnnotation()
+      }
+      ElMessage.success(mediaProcessMessage.value || '视频处理完成')
+    }
+    if (prevStatus !== mediaProcessStatus.value && mediaProcessStatus.value === 'failed') {
+      ElMessage.error(mediaProcessMessage.value || '视频处理失败')
+    }
+  } catch {
+    stopMediaStatusPolling()
+  }
+}
+
 async function loadBatchInfo() {
   try {
     const res = await taskApi.get(batchId)
     batchName.value = res.data.name
+    applyMediaProcessState(res.data)
     const framesRes = await taskApi.getFrames(batchId)
     const frames = (framesRes.data || []) as { frame_index: number; file_path: string }[]
     if (frames.length === 0) {
@@ -504,7 +583,7 @@ function onFileChange(_file: UploadFile, fileList: UploadFiles) {
 }
 
 async function submitUpload() {
-  if (!pendingFiles.value.length) return
+  if (!pendingFiles.value.length || isMediaProcessing.value) return
   const formData = new FormData()
   const isVideo = pendingFiles.value.length === 1 && /\.(mp4|avi|mov|mkv|webm|flv)$/i.test(pendingFiles.value[0].name || '')
   if (isVideo) {
@@ -521,14 +600,22 @@ async function submitUpload() {
   }
   uploading.value = true
   try {
-    await taskApi.upload(batchId, formData)
-    ElMessage.success('上传成功')
+    const res = await taskApi.upload(batchId, formData)
     pendingFiles.value = []
     uploadRef.value?.clearFiles()
-    await loadBatchInfo()
-    if (totalFrames.value > 0) {
-      await jumpToFirstUnannotatedFrame()
-      await loadAnnotation()
+    if (res.status === 202) {
+      mediaProcessStatus.value = 'queued'
+      mediaProcessMessage.value = res.data?.message || '视频已上传，正在后台处理中。'
+      ElMessage.success(mediaProcessMessage.value)
+      startMediaStatusPolling()
+      await refreshMediaProcessStatus()
+    } else {
+      ElMessage.success('上传成功')
+      await loadBatchInfo()
+      if (totalFrames.value > 0) {
+        await jumpToFirstUnannotatedFrame()
+        await loadAnnotation()
+      }
     }
   } catch { /* handled */ }
   finally { uploading.value = false }
@@ -755,6 +842,9 @@ watch(currentFrame, () => loadAnnotation())
 watch(keypointsList, () => drawKeypointsCanvas(), { deep: true })
 onMounted(async () => {
   await loadBatchInfo()
+  if (isMediaProcessing.value) {
+    startMediaStatusPolling()
+  }
   if (totalFrames.value > 0) {
     await jumpToFirstUnannotatedFrame()
     await loadAnnotation()
@@ -762,6 +852,7 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => {
+  stopMediaStatusPolling()
   window.removeEventListener('keydown', onKeydown)
   revokeFrameImageUrl()
 })

@@ -1,27 +1,38 @@
 """上传图片/视频并提取帧，保存到 UPLOAD_DIR。"""
 
-import os
 import shutil
 import logging
 from pathlib import Path
-from typing import List, Tuple
+from datetime import datetime
+from typing import List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.database import SessionLocal
 from app.models.batch_frame import BatchFrame
-from app.models.task_batch import TaskBatch
+from app.models.task_batch import MediaProcessStatus, TaskBatch
+from app.services import task_service
 
 logger = logging.getLogger(__name__)
 
 ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"}
 ALLOWED_VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv"}
+PROCESSING_DIR_NAME = "_processing"
 
 
 def _batch_upload_dir(batch_id: int) -> Path:
     d = Path(settings.UPLOAD_DIR) / f"batch_{batch_id}"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _batch_processing_dir(batch_id: int) -> Path:
+    return _batch_upload_dir(batch_id) / PROCESSING_DIR_NAME
+
+
+def cleanup_processing_dir(batch_id: int) -> None:
+    shutil.rmtree(_batch_processing_dir(batch_id), ignore_errors=True)
 
 
 def _save_uploaded_images(
@@ -78,11 +89,145 @@ def _extract_frames_from_video(video_path: Path, out_dir: Path, max_frames: int 
     return saved
 
 
+def _extract_video_to_paths(
+    video_path: Path,
+    out_dir: Path,
+    *,
+    max_frames: int = 500,
+    use_yolo: bool = False,
+    motion_threshold: Optional[float] = None,
+) -> List[Path]:
+    if use_yolo:
+        from app.services.yolo_preprocess_service import extract_and_filter_video
+
+        return extract_and_filter_video(
+            video_path,
+            out_dir,
+            target_fps=10.0,
+            motion_threshold=motion_threshold,
+            max_frames=max_frames,
+        )
+    return _extract_frames_from_video(video_path, out_dir, max_frames=max_frames)
+
+
+def stage_uploaded_video(batch_id: int, content: bytes, filename: str) -> Path:
+    processing_dir = _batch_processing_dir(batch_id)
+    cleanup_processing_dir(batch_id)
+    processing_dir.mkdir(parents=True, exist_ok=True)
+
+    ext = Path(filename).suffix.lower() or ".mp4"
+    video_path = processing_dir / f"source{ext}"
+    video_path.write_bytes(content)
+    return video_path
+
+
+def _clear_batch_media_files(batch_id: int) -> None:
+    batch_dir = _batch_upload_dir(batch_id)
+    for path in batch_dir.iterdir():
+        if path.name == PROCESSING_DIR_NAME:
+            continue
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink(missing_ok=True)
+
+
+def _promote_processed_frames(batch_id: int, saved_paths: List[Path]) -> List[Tuple[int, str]]:
+    batch_dir = _batch_upload_dir(batch_id)
+    _clear_batch_media_files(batch_id)
+
+    entries: List[Tuple[int, str]] = []
+    for i, path in enumerate(saved_paths, start=1):
+        ext = path.suffix.lower() or ".jpg"
+        final_path = batch_dir / f"frame_{i}{ext}"
+        shutil.move(str(path), str(final_path))
+        entries.append((i, f"batch_{batch_id}/{final_path.name}"))
+
+    cleanup_processing_dir(batch_id)
+    return entries
+
+
+def process_uploaded_video_in_background(
+    batch_id: int,
+    *,
+    max_frames: int,
+    use_yolo: bool,
+    motion_threshold: Optional[float],
+    source_name: str,
+) -> None:
+    db = SessionLocal()
+    try:
+        batch = db.query(TaskBatch).filter(TaskBatch.id == batch_id).first()
+        if not batch:
+            cleanup_processing_dir(batch_id)
+            return
+
+        task_service.update_media_process_state(
+            db,
+            batch,
+            MediaProcessStatus.PROCESSING,
+            message=f"正在后台处理视频：{source_name}",
+            started_at=datetime.utcnow(),
+            finished_at=None,
+        )
+
+        processing_dir = _batch_processing_dir(batch_id)
+        video_candidates = [p for p in processing_dir.iterdir() if p.is_file() and p.suffix.lower() in ALLOWED_VIDEO_EXT]
+        if not video_candidates:
+            raise RuntimeError("未找到待处理的视频文件")
+
+        video_path = video_candidates[0]
+        frames_dir = processing_dir / "frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+
+        saved_paths = _extract_video_to_paths(
+            video_path,
+            frames_dir,
+            max_frames=max_frames,
+            use_yolo=use_yolo,
+            motion_threshold=motion_threshold,
+        )
+        if not saved_paths:
+            raise RuntimeError("未提取到任何帧，请检查视频内容或参数设置")
+
+        entries = _promote_processed_frames(batch_id, saved_paths)
+        batch = db.query(TaskBatch).filter(TaskBatch.id == batch_id).first()
+        if not batch:
+            cleanup_processing_dir(batch_id)
+            return
+
+        replace_frames_for_batch(db, batch, entries)
+        task_service.update_media_process_state(
+            db,
+            batch,
+            MediaProcessStatus.COMPLETED,
+            message=f"视频处理完成，已提取 {len(entries)} 帧。",
+            started_at=batch.media_process_started_at,
+            finished_at=datetime.utcnow(),
+        )
+    except Exception as exc:
+        logger.exception("后台处理视频失败: batch_id=%s", batch_id)
+        db.rollback()
+        batch = db.query(TaskBatch).filter(TaskBatch.id == batch_id).first()
+        if batch:
+            task_service.update_media_process_state(
+                db,
+                batch,
+                MediaProcessStatus.FAILED,
+                message=f"视频处理失败：{exc}",
+                started_at=batch.media_process_started_at,
+                finished_at=datetime.utcnow(),
+            )
+        cleanup_processing_dir(batch_id)
+    finally:
+        db.close()
+
+
 def save_uploaded_video(
     batch_id: int,
     content: bytes,
     filename: str,
-    max_frames: int = 1000000,
+    max_frames: int = 500,
     use_yolo: bool = False,
     motion_threshold: float | None = None,
 ) -> List[Tuple[int, str]]:
@@ -91,26 +236,17 @@ def save_uploaded_video(
     use_yolo=True 且 motion_threshold 不为 None 时，使用 YOLOv8 骨架分析
     只保留帧间动作幅度 >= motion_threshold 的帧；否则均匀抽帧。
     """
-    base = _batch_upload_dir(batch_id)
-    ext = Path(filename).suffix.lower() or ".mp4"
-    video_path = base / f"video{ext}"
-    video_path.write_bytes(content)
-
-    if use_yolo:
-        logger.info("使用 YOLOv8 骨架分析提取帧，motion_threshold=%.2f", motion_threshold)
-        from app.services.yolo_preprocess_service import extract_and_filter_video
-        saved_paths = extract_and_filter_video(
-            video_path,
-            base,
-            target_fps=10.0,
-            motion_threshold=motion_threshold,
-            max_frames=max_frames,
-        )
-    else:
-        saved_paths = _extract_frames_from_video(video_path, base, max_frames=max_frames)
-
-    rel_prefix = f"batch_{batch_id}/"
-    return [(i, rel_prefix + p.name) for i, p in enumerate(saved_paths, start=1)]
+    video_path = stage_uploaded_video(batch_id, content, filename)
+    frames_dir = _batch_processing_dir(batch_id) / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    saved_paths = _extract_video_to_paths(
+        video_path,
+        frames_dir,
+        max_frames=max_frames,
+        use_yolo=use_yolo,
+        motion_threshold=motion_threshold,
+    )
+    return _promote_processed_frames(batch_id, saved_paths)
 
 
 def add_frames_to_batch(

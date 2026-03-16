@@ -1,5 +1,6 @@
 """Task batch management service."""
 
+from datetime import datetime
 import logging
 import shutil
 from pathlib import Path
@@ -7,7 +8,7 @@ from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.task_batch import TaskBatch, TaskStatus
+from app.models.task_batch import MediaProcessStatus, TaskBatch, TaskStatus
 from app.models.user import User
 from app.models.annotation import FrameAnnotation, AnnotationStatus
 from app.models.review_record import ReviewRecord
@@ -15,6 +16,43 @@ from app.config import settings
 from app.schemas.task_batch import TaskBatchCreate, TaskBatchUpdate
 
 logger = logging.getLogger(__name__)
+
+
+def update_media_process_state(
+    db: Session,
+    batch: TaskBatch,
+    state: MediaProcessStatus,
+    *,
+    message: Optional[str] = None,
+    started_at: Optional[datetime] = None,
+    finished_at: Optional[datetime] = None,
+) -> TaskBatch:
+    batch.media_process_status = state.value
+    batch.media_process_message = message
+    batch.media_process_started_at = started_at
+    batch.media_process_finished_at = finished_at
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+def recover_interrupted_media_processes(db: Session) -> int:
+    interrupted = db.query(TaskBatch).filter(
+        TaskBatch.media_process_status.in_([
+            MediaProcessStatus.QUEUED.value,
+            MediaProcessStatus.PROCESSING.value,
+        ])
+    ).all()
+    if not interrupted:
+        return 0
+
+    now = datetime.utcnow()
+    for batch in interrupted:
+        batch.media_process_status = MediaProcessStatus.FAILED.value
+        batch.media_process_message = "后台视频处理因服务重启或进程退出而中断，请重新上传。"
+        batch.media_process_finished_at = now
+    db.commit()
+    return len(interrupted)
 
 
 def create_task_batch(db: Session, data: TaskBatchCreate, creator: User) -> TaskBatch:

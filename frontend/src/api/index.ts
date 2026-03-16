@@ -41,6 +41,7 @@ export const taskApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 300000,
     }),
+  getMediaProcessStatus: (batchId: number) => request.get(`/tasks/${batchId}/media-process-status`),
   getFrames: (batchId: number) => request.get(`/tasks/${batchId}/frames`),
   getFrameImageUrl: (batchId: number, frameIndex: number) =>
     `/tasks/${batchId}/frame/${frameIndex}/image`,

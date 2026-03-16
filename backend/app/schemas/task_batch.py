@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from app.models.task_batch import TaskStatus
+from app.models.task_batch import MediaProcessStatus, TaskStatus
 
 
 class TaskBatchCreate(BaseModel):
@@ -36,7 +36,22 @@ class TaskBatchOut(BaseModel):
     frame_end: Optional[int] = None
     total_frames: int
     completed_frames: int
+    media_process_status: MediaProcessStatus
+    media_process_message: Optional[str] = None
+    media_process_started_at: Optional[datetime] = None
+    media_process_finished_at: Optional[datetime] = None
     deadline: Optional[datetime] = None
     created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TaskBatchMediaProcessOut(BaseModel):
+    task_batch_id: int
+    media_process_status: MediaProcessStatus
+    media_process_message: Optional[str] = None
+    media_process_started_at: Optional[datetime] = None
+    media_process_finished_at: Optional[datetime] = None
+    total_frames: int
 
     model_config = {"from_attributes": True}

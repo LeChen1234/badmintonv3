@@ -21,6 +21,14 @@ export enum TaskStatus {
   LOCKED = 'locked',
 }
 
+export enum MediaProcessStatus {
+  IDLE = 'idle',
+  QUEUED = 'queued',
+  PROCESSING = 'processing',
+  COMPLETED = 'completed',
+  FAILED = 'failed',
+}
+
 export const TaskStatusLabel: Record<TaskStatus, string> = {
   [TaskStatus.PENDING]: '待分配',
   [TaskStatus.ANNOTATING]: '标注中',
@@ -123,8 +131,21 @@ export interface TaskBatch {
   frame_end: number | null
   total_frames: number
   completed_frames: number
+  media_process_status: MediaProcessStatus
+  media_process_message: string | null
+  media_process_started_at: string | null
+  media_process_finished_at: string | null
   deadline: string | null
   created_at: string
+}
+
+export interface TaskBatchMediaProcessStatus {
+  task_batch_id: number
+  media_process_status: MediaProcessStatus
+  media_process_message: string | null
+  media_process_started_at: string | null
+  media_process_finished_at: string | null
+  total_frames: number
 }
 
 export interface TaskBatchCreate {
