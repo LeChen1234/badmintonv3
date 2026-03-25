@@ -7,7 +7,7 @@ from urllib.request import urlopen
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import PROJECT_ROOT, settings
+from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.models import User
 from app.core.security import hash_password
@@ -36,13 +36,9 @@ def _ensure_yolo_pose_model() -> None:
     model_dir = Path(settings.DATA_DIR) / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
     data_model = model_dir / YOLO_POSE_MODEL_NAME
-    root_model = PROJECT_ROOT / YOLO_POSE_MODEL_NAME
 
     if data_model.exists() and data_model.stat().st_size > 0:
         logger.info("YOLO pose model ready: %s", data_model)
-        return
-    if root_model.exists() and root_model.stat().st_size > 0:
-        logger.info("YOLO pose model found in project root: %s", root_model)
         return
 
     logger.info("YOLO pose model not found locally, downloading: %s", YOLO_POSE_MODEL_URL)

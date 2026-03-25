@@ -19,8 +19,8 @@ COPY backend/requirements.txt ./requirements.txt
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY backend/ ./
-
 RUN mkdir -p /app/data/models /app/data/uploads /app/data/exports
+COPY data/models/yolov8n-pose.pt /app/data/models/yolov8n-pose.pt
 
 EXPOSE 8000
 

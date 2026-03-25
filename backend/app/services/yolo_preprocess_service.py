@@ -13,7 +13,7 @@ from typing import List, Optional, Tuple
 
 import cv2
 
-from app.config import PROJECT_ROOT, settings
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +22,8 @@ _BODY_KPT_INDICES = list(range(5, 17))
 
 
 def _find_yolo_model() -> Optional[Path]:
-    """按优先级查找 yolov8n-pose.pt：data/models → 项目根目录。"""
-    candidates = [
-        Path(settings.DATA_DIR) / "models" / "yolov8n-pose.pt",
-        PROJECT_ROOT / "yolov8n-pose.pt",
-    ]
+    """查找 data/models 下的 yolov8n-pose.pt。"""
+    candidates = [Path(settings.DATA_DIR) / "models" / "yolov8n-pose.pt"]
     for p in candidates:
         if p.exists():
             return p
@@ -100,7 +97,7 @@ def extract_and_filter_video(
     model_path = _find_yolo_model()
     if model_path is None:
         logger.warning(
-            "yolo_preprocess: 未找到 yolov8n-pose.pt（已查找 data/models/ 与项目根目录），"
+            "yolo_preprocess: 未找到 yolov8n-pose.pt（已查找 data/models/），"
             "降级为均匀抽帧（不过滤）。"
         )
         return _plain_extract(video_path, out_dir, target_fps, max_frames)
