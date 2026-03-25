@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.annotation import FrameAnnotation, AnnotationStatus
 from app.models.task_batch import TaskBatch
+from app.models.player import Player
 from app.schemas.annotation import (
     FrameAnnotationCreate,
     FrameAnnotationUpdate,
@@ -21,6 +22,10 @@ from app.services import task_service
 from app.utils.audit import log_audit
 
 router = APIRouter(prefix="/annotations", tags=["标注管理"])
+
+
+def _player_map(batch: TaskBatch) -> dict:
+    return {p.id: p for p in (batch.players or [])}
 
 
 @router.get("", response_model=List[FrameAnnotationOut])
@@ -50,6 +55,16 @@ def create_annotation(
     batch = db.query(TaskBatch).filter(TaskBatch.id == data.task_batch_id).first()
     if not batch:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
+    if not batch.metadata_confirmed:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先完成任务元信息填写并确认，再开始标注")
+    if data.selected_player_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请选择选手")
+    if not (data.action_type or "").strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请选择动作类型")
+
+    player_map = _player_map(batch)
+    if data.selected_player_id not in player_map:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "所选选手不在当前任务元信息中")
 
     keypoints_dict = None
     if data.keypoints:
@@ -60,10 +75,16 @@ def create_annotation(
         frame_index=data.frame_index,
         annotator_id=current_user.id,
         annotator_name=current_user.display_name,
+        selected_player_id=data.selected_player_id,
         keypoints=keypoints_dict,
+        box_x=data.box_x,
+        box_y=data.box_y,
+        box_w=data.box_w,
+        box_h=data.box_h,
         action_type=data.action_type,
         action_phase=data.action_phase,
         quality_rating=data.quality_rating,
+        is_forced_action=data.is_forced_action,
         notes=data.notes,
         is_ml_generated=data.is_ml_generated,
         status=AnnotationStatus.DRAFT,
@@ -82,6 +103,19 @@ def batch_create_annotations(
 ):
     results = []
     for item in data.annotations:
+        batch = db.query(TaskBatch).filter(TaskBatch.id == item.task_batch_id).first()
+        if not batch:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
+        if not batch.metadata_confirmed:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先完成任务元信息填写并确认，再开始标注")
+        if item.selected_player_id is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "请选择选手")
+        if not (item.action_type or "").strip():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "请选择动作类型")
+        player_map = _player_map(batch)
+        if item.selected_player_id not in player_map:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "所选选手不在当前任务元信息中")
+
         keypoints_dict = None
         if item.keypoints:
             keypoints_dict = [kp.model_dump() for kp in item.keypoints]
@@ -91,10 +125,16 @@ def batch_create_annotations(
             frame_index=item.frame_index,
             annotator_id=current_user.id,
             annotator_name=current_user.display_name,
+            selected_player_id=item.selected_player_id,
             keypoints=keypoints_dict,
+            box_x=item.box_x,
+            box_y=item.box_y,
+            box_w=item.box_w,
+            box_h=item.box_h,
             action_type=item.action_type,
             action_phase=item.action_phase,
             quality_rating=item.quality_rating,
+            is_forced_action=item.is_forced_action,
             notes=item.notes,
             is_ml_generated=item.is_ml_generated,
             status=AnnotationStatus.DRAFT,
@@ -119,6 +159,12 @@ def update_annotation(
     if not annotation:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "标注不存在")
 
+    batch = db.query(TaskBatch).filter(TaskBatch.id == annotation.task_batch_id).first()
+    if not batch:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
+    if not batch.metadata_confirmed:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先完成任务元信息填写并确认，再开始标注")
+
     if annotation.status == AnnotationStatus.CONFIRMED:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "已确认的标注不能修改")
 
@@ -128,6 +174,16 @@ def update_annotation(
 
     update_data["annotator_id"] = current_user.id
     update_data["annotator_name"] = current_user.display_name
+
+    next_selected_player_id = update_data.get("selected_player_id") if "selected_player_id" in update_data else annotation.selected_player_id
+    next_action_type = (update_data.get("action_type") if "action_type" in update_data else annotation.action_type) or ""
+    if next_selected_player_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请选择选手")
+    if not str(next_action_type).strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请选择动作类型")
+    player_map = _player_map(batch)
+    if next_selected_player_id not in player_map:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "所选选手不在当前任务元信息中")
 
     for key, value in update_data.items():
         setattr(annotation, key, value)

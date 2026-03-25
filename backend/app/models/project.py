@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional
+from uuid import uuid4
 
 from sqlalchemy import String, Integer, DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -11,6 +12,7 @@ class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, index=True, nullable=False, default=lambda: str(uuid4()))
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     ls_project_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

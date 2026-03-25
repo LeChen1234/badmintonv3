@@ -42,6 +42,16 @@ export const taskApi = {
       timeout: 300000,
     }),
   getMediaProcessStatus: (batchId: number) => request.get(`/tasks/${batchId}/media-process-status`),
+  updateMetadata: (
+    batchId: number,
+    data: {
+      match_date?: string;
+      match_name?: string;
+      players?: Array<{ id?: number; uuid?: string; name?: string; gender?: 'male' | 'female'; age?: number; height_cm?: number }>;
+    },
+  ) =>
+    request.put(`/tasks/${batchId}/metadata`, data),
+  confirmMetadata: (batchId: number) => request.post(`/tasks/${batchId}/metadata/confirm`),
   getFrames: (batchId: number) => request.get(`/tasks/${batchId}/frames`),
   getFrameImageUrl: (batchId: number, frameIndex: number) =>
     `/tasks/${batchId}/frame/${frameIndex}/image`,

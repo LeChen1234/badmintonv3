@@ -17,6 +17,7 @@ class ProjectUpdate(BaseModel):
 
 class ProjectOut(BaseModel):
     id: int
+    uuid: str
     name: str
     description: Optional[str] = None
     ls_project_id: Optional[int] = None

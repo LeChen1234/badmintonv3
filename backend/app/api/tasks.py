@@ -1,5 +1,7 @@
 from pathlib import Path
+from datetime import datetime
 from typing import List, Optional
+from uuid import uuid4
 
 import logging
 
@@ -12,9 +14,11 @@ from app.core.permissions import require_roles
 from app.core.security import get_current_user
 from app.database import get_db
 from app.models.batch_frame import BatchFrame
+from app.models.player import Player
+from app.models.annotation import FrameAnnotation
 from app.models.task_batch import MediaProcessStatus, TaskBatch, TaskStatus
 from app.models.user import User, UserRole
-from app.schemas.task_batch import TaskBatchCreate, TaskBatchMediaProcessOut, TaskBatchOut, TaskBatchUpdate
+from app.schemas.task_batch import TaskBatchCreate, TaskBatchMediaProcessOut, TaskBatchMetadataUpdate, TaskBatchOut, TaskBatchUpdate
 from app.services import task_service
 from app.services.upload_service import (
     ALLOWED_IMAGE_EXT,
@@ -31,8 +35,20 @@ logger = logging.getLogger(__name__)
 
 
 def _enrich_batch(batch: TaskBatch) -> TaskBatchOut:
+    players = [
+        {
+            "id": p.id,
+            "uuid": p.uuid,
+            "name": p.name,
+            "gender": p.gender,
+            "age": p.age,
+            "height_cm": p.height_cm,
+        }
+        for p in (batch.players or [])
+    ]
     return TaskBatchOut(
         id=batch.id,
+        uuid=batch.uuid,
         project_id=batch.project_id,
         name=batch.name,
         action_category=batch.action_category,
@@ -47,9 +63,77 @@ def _enrich_batch(batch: TaskBatch) -> TaskBatchOut:
         media_process_message=batch.media_process_message,
         media_process_started_at=batch.media_process_started_at,
         media_process_finished_at=batch.media_process_finished_at,
+        match_uuid=batch.match_uuid,
+        match_date=batch.match_date,
+        match_name=batch.match_name,
+        players=players,
+        metadata_confirmed=batch.metadata_confirmed,
+        metadata_confirmed_at=batch.metadata_confirmed_at,
         deadline=batch.deadline,
         created_at=batch.created_at,
     )
+
+
+def _normalize_players(players_input: Optional[List[dict]]) -> List[dict]:
+    if not players_input:
+        return []
+
+    normalized: List[dict] = []
+    for item in players_input[:2]:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or "").strip()
+        if not name:
+            continue
+        normalized.append(
+            {
+                "id": item.get("id"),
+                "uuid": item.get("uuid") or str(uuid4()),
+                "name": name,
+                "gender": item.get("gender") if item.get("gender") in ("male", "female") else None,
+                "age": item.get("age") if isinstance(item.get("age"), int) and 1 <= item.get("age") <= 99 else None,
+                "height_cm": item.get("height_cm") if isinstance(item.get("height_cm"), int) and 80 <= item.get("height_cm") <= 260 else None,
+            }
+        )
+    return normalized
+
+
+def _sync_batch_players(db: Session, batch: TaskBatch, players_input: Optional[List[dict]]) -> None:
+    players = _normalize_players(players_input)
+    existing_by_uuid = {p.uuid: p for p in (batch.players or []) if p.uuid}
+    keep_ids = set()
+
+    for item in players:
+        player = existing_by_uuid.get(item["uuid"])
+        if player is None:
+            player = Player(
+                task_batch_id=batch.id,
+                uuid=item["uuid"],
+                name=item["name"],
+                gender=item.get("gender"),
+                age=item.get("age"),
+                height_cm=item.get("height_cm"),
+            )
+            db.add(player)
+            db.flush()
+        else:
+            player.name = item["name"]
+            player.gender = item.get("gender")
+            player.age = item.get("age")
+            player.height_cm = item.get("height_cm")
+        keep_ids.add(player.id)
+
+    for player in list(batch.players or []):
+        if player.id in keep_ids:
+            continue
+        ref_count = (
+            db.query(FrameAnnotation)
+            .filter(FrameAnnotation.selected_player_id == player.id)
+            .count()
+        )
+        if ref_count > 0:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"选手 {player.name} 已被标注引用，不能删除")
+        db.delete(player)
 
 
 def _can_upload_for_batch(user: User, batch: TaskBatch) -> bool:
@@ -138,6 +222,78 @@ def update_batch(
     if not batch:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
     batch = task_service.update_task_batch(db, batch, data)
+    return _enrich_batch(batch)
+
+
+@router.put("/{batch_id}/metadata", response_model=TaskBatchOut)
+def update_batch_metadata(
+    batch_id: int,
+    data: TaskBatchMetadataUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    batch = task_service.get_task_batch(db, batch_id)
+    if not batch:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
+    if not _can_upload_for_batch(current_user, batch):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "无权维护该任务元信息")
+
+    update_data = data.model_dump(exclude_unset=True)
+    if "match_date" in update_data:
+        batch.match_date = update_data.get("match_date")
+
+    if "match_name" in update_data:
+        new_match_name = (update_data.get("match_name") or "").strip() or None
+        if new_match_name and new_match_name != batch.match_name and not batch.match_uuid:
+            batch.match_uuid = str(uuid4())
+        batch.match_name = new_match_name
+
+    if batch.match_name and not batch.match_uuid:
+        batch.match_uuid = str(uuid4())
+
+    if "players" in update_data:
+        _sync_batch_players(db, batch, update_data.get("players"))
+
+    if update_data:
+        batch.metadata_confirmed = False
+        batch.metadata_confirmed_at = None
+
+    db.commit()
+    db.refresh(batch)
+    return _enrich_batch(batch)
+
+
+@router.post("/{batch_id}/metadata/confirm", response_model=TaskBatchOut)
+def confirm_batch_metadata(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    batch = task_service.get_task_batch(db, batch_id)
+    if not batch:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
+    if not _can_upload_for_batch(current_user, batch):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "无权确认该任务元信息")
+
+    if not batch.match_name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先填写比赛名称")
+
+    if not batch.match_date:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先选择比赛日期")
+
+    players = [{"name": p.name} for p in (batch.players or [])]
+    if not players:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请至少填写一位选手名称")
+    if any(not (p.get("name") or "").strip() for p in players):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "选手名称为必填项")
+
+    if batch.match_name and not batch.match_uuid:
+        batch.match_uuid = str(uuid4())
+
+    batch.metadata_confirmed = True
+    batch.metadata_confirmed_at = datetime.utcnow()
+    db.commit()
+    db.refresh(batch)
     return _enrich_batch(batch)
 
 

@@ -1,5 +1,5 @@
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, date
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -24,8 +24,24 @@ class TaskBatchUpdate(BaseModel):
     deadline: Optional[datetime] = None
 
 
+class TaskPlayerInfo(BaseModel):
+    id: Optional[int] = None
+    uuid: Optional[str] = Field(default=None, max_length=36)
+    name: Optional[str] = Field(default=None, max_length=128)
+    gender: Optional[str] = Field(default=None, max_length=16)
+    age: Optional[int] = Field(default=None, ge=1, le=99)
+    height_cm: Optional[int] = Field(default=None, ge=80, le=260)
+
+
+class TaskBatchMetadataUpdate(BaseModel):
+    match_date: Optional[date] = Field(default=None)
+    match_name: Optional[str] = Field(default=None, max_length=256)
+    players: Optional[List[TaskPlayerInfo]] = None
+
+
 class TaskBatchOut(BaseModel):
     id: int
+    uuid: str
     project_id: int
     name: str
     action_category: Optional[str] = None
@@ -40,6 +56,12 @@ class TaskBatchOut(BaseModel):
     media_process_message: Optional[str] = None
     media_process_started_at: Optional[datetime] = None
     media_process_finished_at: Optional[datetime] = None
+    match_uuid: Optional[str] = None
+    match_date: Optional[date] = None
+    match_name: Optional[str] = None
+    players: List[TaskPlayerInfo] = Field(default_factory=list)
+    metadata_confirmed: bool = False
+    metadata_confirmed_at: Optional[datetime] = None
     deadline: Optional[datetime] = None
     created_at: datetime
 

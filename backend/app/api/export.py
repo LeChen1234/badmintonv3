@@ -54,10 +54,17 @@ def _to_export_json(annotations, batch_map):
             "frame_index": ann.frame_index,
             "annotator_id": ann.annotator_id,
             "annotator_name": ann.annotator_name,
+            "selected_player_id": ann.selected_player_id,
+            "selected_player_name": ann.selected_player_obj.name if ann.selected_player_obj else "",
             "keypoints": ann.keypoints,
+            "box_x": ann.box_x,
+            "box_y": ann.box_y,
+            "box_w": ann.box_w,
+            "box_h": ann.box_h,
             "action_type": ann.action_type,
             "action_phase": ann.action_phase,
             "quality_rating": ann.quality_rating,
+            "is_forced_action": ann.is_forced_action,
             "notes": ann.notes,
             "is_ml_generated": ann.is_ml_generated,
             "status": ann.status.value,
@@ -119,9 +126,16 @@ def _records_to_coco(records: list, project_name: str) -> dict:
             "num_keypoints": sum(1 for i in range(25) if keypoints[i * 3 + 2] > 0),
             "annotator_id": r.get("annotator_id"),
             "annotator_name": r.get("annotator_name"),
+            "selected_player_id": r.get("selected_player_id"),
+            "selected_player_name": r.get("selected_player_name"),
+            "box_x": r.get("box_x"),
+            "box_y": r.get("box_y"),
+            "box_w": r.get("box_w"),
+            "box_h": r.get("box_h"),
             "action_type": r.get("action_type"),
             "action_phase": r.get("action_phase"),
             "quality_rating": r.get("quality_rating"),
+            "is_forced_action": bool(r.get("is_forced_action")),
         })
     return {
         "info": {"description": project_name},
@@ -135,16 +149,23 @@ def _records_to_csv(records: list) -> str:
     """将 records 转为 CSV 表格（含标注人）。"""
     out = io.StringIO()
     w = csv.writer(out)
-    w.writerow(["task_batch_id", "frame_index", "annotator_id", "annotator_name", "action_type", "action_phase", "quality_rating", "notes"])
+    w.writerow(["task_batch_id", "frame_index", "annotator_id", "annotator_name", "selected_player_id", "selected_player_name", "box_x", "box_y", "box_w", "box_h", "action_type", "action_phase", "quality_rating", "is_forced_action", "notes"])
     for r in records:
         w.writerow([
             r.get("task_batch_id"),
             r.get("frame_index"),
             r.get("annotator_id"),
             r.get("annotator_name"),
+            r.get("selected_player_id") or "",
+            r.get("selected_player_name") or "",
+            r.get("box_x") if r.get("box_x") is not None else "",
+            r.get("box_y") if r.get("box_y") is not None else "",
+            r.get("box_w") if r.get("box_w") is not None else "",
+            r.get("box_h") if r.get("box_h") is not None else "",
             r.get("action_type") or "",
             r.get("action_phase") or "",
             r.get("quality_rating") or "",
+            "1" if r.get("is_forced_action") else "0",
             (r.get("notes") or "").replace("\n", " "),
         ])
     return out.getvalue()

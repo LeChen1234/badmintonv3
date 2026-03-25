@@ -17,32 +17,51 @@ class FrameAnnotationCreate(BaseModel):
     task_batch_id: int
     frame_index: int
     keypoints: Optional[List[KeypointData]] = None
+    box_x: Optional[float] = None
+    box_y: Optional[float] = None
+    box_w: Optional[float] = None
+    box_h: Optional[float] = None
+    selected_player_id: Optional[int] = Field(default=None)
     action_type: Optional[str] = None
     action_phase: Optional[str] = None
     quality_rating: Optional[str] = None
+    is_forced_action: bool = False
     notes: Optional[str] = None
     is_ml_generated: bool = False
 
 
 class FrameAnnotationUpdate(BaseModel):
     keypoints: Optional[List[KeypointData]] = None
+    box_x: Optional[float] = None
+    box_y: Optional[float] = None
+    box_w: Optional[float] = None
+    box_h: Optional[float] = None
+    selected_player_id: Optional[int] = Field(default=None)
     action_type: Optional[str] = None
     action_phase: Optional[str] = None
     quality_rating: Optional[str] = None
+    is_forced_action: Optional[bool] = None
     notes: Optional[str] = None
     status: Optional[AnnotationStatus] = None
 
 
 class FrameAnnotationOut(BaseModel):
     id: int
+    uuid: str
     task_batch_id: int
     frame_index: int
     annotator_id: int
     annotator_name: str
     keypoints: Optional[Any] = None
+    box_x: Optional[float] = None
+    box_y: Optional[float] = None
+    box_w: Optional[float] = None
+    box_h: Optional[float] = None
+    selected_player_id: Optional[int] = None
     action_type: Optional[str] = None
     action_phase: Optional[str] = None
     quality_rating: Optional[str] = None
+    is_forced_action: bool = False
     notes: Optional[str] = None
     is_ml_generated: bool
     status: AnnotationStatus
