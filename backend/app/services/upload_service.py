@@ -4,7 +4,7 @@ import shutil
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import BinaryIO, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,23 @@ def _batch_upload_dir(batch_id: int) -> Path:
 
 def _batch_processing_dir(batch_id: int) -> Path:
     return _batch_upload_dir(batch_id) / PROCESSING_DIR_NAME
+
+
+def _batch_chunk_upload_dir(batch_id: int, upload_id: str) -> Path:
+    return _batch_processing_dir(batch_id) / "chunks" / upload_id
+
+
+def get_uploaded_chunks(batch_id: int, upload_id: str) -> List[int]:
+    chunk_dir = _batch_chunk_upload_dir(batch_id, upload_id)
+    if not chunk_dir.exists():
+        return []
+    chunks = []
+    for p in chunk_dir.glob("*.part"):
+        try:
+            chunks.append(int(p.stem))
+        except ValueError:
+            pass
+    return sorted(chunks)
 
 
 def cleanup_processing_dir(batch_id: int) -> None:
@@ -119,6 +136,45 @@ def stage_uploaded_video(batch_id: int, content: bytes, filename: str) -> Path:
     video_path = processing_dir / f"source{ext}"
     video_path.write_bytes(content)
     return video_path
+
+
+def save_video_chunk(
+    batch_id: int,
+    *,
+    upload_id: str,
+    chunk_index: int,
+    total_chunks: int,
+    chunk_stream: BinaryIO,
+    original_filename: str,
+) -> bool:
+    """保存视频分块；当分块齐全时自动合并并返回 True。"""
+    processing_dir = _batch_processing_dir(batch_id)
+    processing_dir.mkdir(parents=True, exist_ok=True)
+
+    chunk_dir = _batch_chunk_upload_dir(batch_id, upload_id)
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+
+    part_path = chunk_dir / f"{chunk_index:06d}.part"
+    with part_path.open("wb") as dst:
+        shutil.copyfileobj(chunk_stream, dst, length=1024 * 1024)
+
+    ready = all((chunk_dir / f"{i:06d}.part").exists() for i in range(total_chunks))
+    if not ready:
+        return False
+
+    ext = Path(original_filename).suffix.lower() or ".mp4"
+    target_video = processing_dir / f"source{ext}"
+    if target_video.exists():
+        target_video.unlink()
+
+    with target_video.open("wb") as dst:
+        for i in range(total_chunks):
+            current_part = chunk_dir / f"{i:06d}.part"
+            with current_part.open("rb") as src:
+                shutil.copyfileobj(src, dst, length=1024 * 1024)
+
+    shutil.rmtree(chunk_dir, ignore_errors=True)
+    return True
 
 
 def _clear_batch_media_files(batch_id: int) -> None:

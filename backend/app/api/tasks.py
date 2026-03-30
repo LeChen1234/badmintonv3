@@ -2,6 +2,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
 from uuid import uuid4
+import re
 
 import logging
 
@@ -27,6 +28,8 @@ from app.services.upload_service import (
     cleanup_processing_dir,
     process_uploaded_video_in_background,
     replace_frames_for_batch,
+    save_video_chunk,
+    get_uploaded_chunks,
     stage_uploaded_video,
 )
 
@@ -140,6 +143,52 @@ def _can_upload_for_batch(user: User, batch: TaskBatch) -> bool:
     if user.role in (UserRole.ADMIN, UserRole.EXPERT, UserRole.LEADER):
         return True
     return batch.assigned_to == user.id
+
+
+def _queue_video_processing(
+    db: Session,
+    batch: TaskBatch,
+    background_tasks: BackgroundTasks,
+    *,
+    batch_id: int,
+    video_max: int,
+    use_yolo_filter: bool,
+    motion_percentile: Optional[float],
+    source_name: str,
+) -> JSONResponse:
+    task_service.update_media_process_state(
+        db,
+        batch,
+        MediaProcessStatus.QUEUED,
+        message="视频已上传，等待后台处理。",
+        started_at=None,
+        finished_at=None,
+    )
+    background_tasks.add_task(
+        process_uploaded_video_in_background,
+        batch_id,
+        max_frames=video_max,
+        use_yolo=use_yolo_filter,
+        motion_percentile=motion_percentile,
+        source_name=source_name,
+    )
+    logger.info(
+        "[upload] batch=%d queued file=%s max_frames=%d use_yolo=%s motion_percentile=%s",
+        batch_id,
+        source_name,
+        video_max,
+        use_yolo_filter,
+        motion_percentile,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={
+            "upload_type": "video",
+            "processing": True,
+            "media_process_status": MediaProcessStatus.QUEUED.value,
+            "message": "视频已上传，正在后台处理中。",
+        },
+    )
 
 
 @router.get("", response_model=List[TaskBatchOut])
@@ -347,12 +396,38 @@ async def trigger_ml(
     return await trigger_prediction(batch.project_id)
 
 
+@router.get("/{batch_id}/upload/{upload_id}")
+def check_uploaded_chunks(
+    batch_id: int,
+    upload_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """查询指定任务和文件（通过 upload_id 标识）已经上传了哪些分块，用于断点续传。"""
+    batch = task_service.get_task_batch(db, batch_id)
+    if not batch:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
+    if not _can_upload_for_batch(current_user, batch):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该任务的上传状态")
+
+    if not re.fullmatch(r"[a-zA-Z0-9_-]{8,128}", upload_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "upload_id 无效")
+
+    chunks = get_uploaded_chunks(batch_id, upload_id)
+    return {"uploaded_chunks": chunks}
+
+
 @router.post("/{batch_id}/upload")
 async def upload_media(
     batch_id: int,
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(default=[]),
     file: Optional[UploadFile] = File(None),
+    chunk: Optional[UploadFile] = File(None),
+    upload_id: Optional[str] = Form(None),
+    chunk_index: Optional[int] = Form(None),
+    total_chunks: Optional[int] = Form(None),
+    original_filename: Optional[str] = Form(None),
     max_frames: Optional[int] = Form(None),
     use_yolo_filter: bool = Form(False),
     motion_percentile: Optional[float] = Form(None),
@@ -370,6 +445,53 @@ async def upload_media(
     if motion_percentile is not None and not (0 <= motion_percentile <= 100):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "动作百分位必须在 0-100 之间")
 
+    if chunk and chunk.filename:
+        if batch.media_process_status in (MediaProcessStatus.QUEUED.value, MediaProcessStatus.PROCESSING.value):
+            raise HTTPException(status.HTTP_409_CONFLICT, "该任务已有视频正在处理中，请等待当前处理完成")
+
+        if not upload_id or not re.fullmatch(r"[a-zA-Z0-9_-]{8,128}", upload_id):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "upload_id 无效")
+        if chunk_index is None or total_chunks is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "缺少 chunk_index 或 total_chunks")
+        if total_chunks <= 0 or chunk_index < 0 or chunk_index >= total_chunks:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "分块索引参数不合法")
+
+        source_name = (original_filename or chunk.filename or "video.mp4").strip()
+        ext = source_name.lower()
+        if not any(ext.endswith(e) for e in ALLOWED_VIDEO_EXT):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "仅支持视频分块上传")
+
+        assembled = save_video_chunk(
+            batch_id,
+            upload_id=upload_id,
+            chunk_index=chunk_index,
+            total_chunks=total_chunks,
+            chunk_stream=chunk.file,
+            original_filename=source_name,
+        )
+        if not assembled:
+            return JSONResponse(
+                status_code=status.HTTP_202_ACCEPTED,
+                content={
+                    "upload_type": "video_chunk",
+                    "processing": False,
+                    "message": "分块已接收",
+                    "upload_id": upload_id,
+                    "chunk_index": chunk_index,
+                    "total_chunks": total_chunks,
+                },
+            )
+        return _queue_video_processing(
+            db,
+            batch,
+            background_tasks,
+            batch_id=batch_id,
+            video_max=video_max,
+            use_yolo_filter=use_yolo_filter,
+            motion_percentile=motion_percentile,
+            source_name=source_name,
+        )
+
     if file and file.filename:
         ext = (file.filename or "").lower()
         if any(ext.endswith(e) for e in ALLOWED_VIDEO_EXT) or "video" in (file.content_type or ""):
@@ -381,38 +503,15 @@ async def upload_media(
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "视频大小不能超过 500MB")
 
             stage_uploaded_video(batch_id, content, file.filename or "video.mp4")
-            task_service.update_media_process_state(
+            return _queue_video_processing(
                 db,
                 batch,
-                MediaProcessStatus.QUEUED,
-                message="视频已上传，等待后台处理。",
-                started_at=None,
-                finished_at=None,
-            )
-            background_tasks.add_task(
-                process_uploaded_video_in_background,
-                batch_id,
-                max_frames=video_max,
-                use_yolo=use_yolo_filter,
+                background_tasks,
+                batch_id=batch_id,
+                video_max=video_max,
+                use_yolo_filter=use_yolo_filter,
                 motion_percentile=motion_percentile,
                 source_name=file.filename or "video.mp4",
-            )
-            logger.info(
-                "[upload] batch=%d queued file=%s max_frames=%d use_yolo=%s motion_percentile=%s",
-                batch_id,
-                file.filename,
-                video_max,
-                use_yolo_filter,
-                motion_percentile,
-            )
-            return JSONResponse(
-                status_code=status.HTTP_202_ACCEPTED,
-                content={
-                    "upload_type": "video",
-                    "processing": True,
-                    "media_process_status": MediaProcessStatus.QUEUED.value,
-                    "message": "视频已上传，正在后台处理中。",
-                },
             )
 
     if not files:

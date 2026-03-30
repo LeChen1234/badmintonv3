@@ -41,6 +41,8 @@ export const taskApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 300000,
     }),
+  getUploadedChunks: (batchId: number, uploadId: string) =>
+    request.get<{ uploaded_chunks: number[] }>(`/tasks/${batchId}/upload/${uploadId}`),
   getMediaProcessStatus: (batchId: number) => request.get(`/tasks/${batchId}/media-process-status`),
   updateMetadata: (
     batchId: number,

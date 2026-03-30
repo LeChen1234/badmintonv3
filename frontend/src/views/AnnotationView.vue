@@ -30,6 +30,17 @@
         style="margin-bottom: 16px;"
       />
 
+      <div v-if="chunkUploadActive" class="chunk-upload-progress">
+        <div class="chunk-upload-head">
+          <span class="chunk-upload-title">视频上传进度</span>
+          <span class="chunk-upload-meta">
+            {{ chunkUploadedCount }}/{{ chunkTotalCount }} 分块
+            <span v-if="chunkUploadETA" class="chunk-eta">{{ chunkUploadETA }}</span>
+          </span>
+        </div>
+        <el-progress :percentage="chunkUploadPercent" :stroke-width="12" />
+      </div>
+
       <!-- 无帧时：上传图片或视频 -->
       <div v-if="totalFrames === 0" class="upload-section">
         <el-upload
@@ -409,6 +420,12 @@ const showReUpload = ref(false)
 const frameImageUrl = ref<string | null>(null)
 const pendingFiles = ref<UploadFile[]>([])
 const uploadRef = ref<UploadInstance>()
+const VIDEO_CHUNK_SIZE = 8 * 1024 * 1024
+const chunkUploadActive = ref(false)
+const chunkUploadedCount = ref(0)
+const chunkTotalCount = ref(0)
+const chunkUploadPercent = ref(0)
+const chunkUploadETA = ref('')
 
 const useYoloFilter = ref(false)
 const motionPercentile = ref(90)
@@ -843,25 +860,98 @@ function onFileChange(_file: UploadFile, fileList: UploadFiles) {
   pendingFiles.value = fileList
 }
 
-async function submitUpload() {
-  if (!pendingFiles.value.length || isMediaProcessing.value) return
-  const formData = new FormData()
-  const isVideo = pendingFiles.value.length === 1 && /\.(mp4|avi|mov|mkv|webm|flv)$/i.test(pendingFiles.value[0].name || '')
-  if (isVideo) {
-    const file = pendingFiles.value[0].raw
-    if (file) formData.append('file', file)
+async function uploadVideoInChunks(file: File) {
+  const totalChunks = Math.max(1, Math.ceil(file.size / VIDEO_CHUNK_SIZE))
+  const rawId = `${file.name}_${file.size}_${file.lastModified}`
+  // 生成稳定的 uploadId（Base64 URL Safe，不含中文乱码问题）
+  const uploadId = btoa(encodeURIComponent(rawId)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  let finalResponse: any = null
+
+  let uploadedChunks = new Set<number>()
+  try {
+    const res = await taskApi.getUploadedChunks(batchId, uploadId)
+    uploadedChunks = new Set(res.data.uploaded_chunks || [])
+  } catch {
+    // 获取失败或不存在时忽略
+  }
+
+  chunkUploadActive.value = true
+  chunkTotalCount.value = totalChunks
+  chunkUploadedCount.value = uploadedChunks.size
+  chunkUploadPercent.value = Math.min(100, Math.round((uploadedChunks.size / totalChunks) * 100))
+  chunkUploadETA.value = '计算中...'
+
+  const startTime = Date.now()
+  let newlyUploaded = 0
+
+  for (let index = 0; index < totalChunks; index++) {
+    // 已经上传直接跳过（但最后一块如果是为了触发合并，则前端仍重新发一次）
+    if (uploadedChunks.has(index) && index !== totalChunks - 1) {
+      continue
+    }
+
+    const start = index * VIDEO_CHUNK_SIZE
+    const end = Math.min(start + VIDEO_CHUNK_SIZE, file.size)
+    const piece = file.slice(start, end)
+
+    const formData = new FormData()
+    formData.append('chunk', piece, file.name)
+    formData.append('upload_id', uploadId)
+    formData.append('chunk_index', String(index))
+    formData.append('total_chunks', String(totalChunks))
+    formData.append('original_filename', file.name)
     formData.append('use_yolo_filter', String(useYoloFilter.value))
     if (useYoloFilter.value) {
       formData.append('motion_percentile', String(motionPercentile.value))
     }
-  } else {
-    pendingFiles.value.forEach((f) => {
-      if (f.raw) formData.append('files', f.raw)
-    })
+
+    finalResponse = await taskApi.upload(batchId, formData)
+    if (!uploadedChunks.has(index)) {
+      uploadedChunks.add(index)
+    }
+    newlyUploaded++
+    chunkUploadedCount.value = uploadedChunks.size
+    chunkUploadPercent.value = Math.min(100, Math.round((chunkUploadedCount.value / totalChunks) * 100))
+    
+    const elapsed = (Date.now() - startTime) / 1000
+    const avgTimePerChunk = elapsed / newlyUploaded
+    const remainingChunks = totalChunks - chunkUploadedCount.value
+    if (remainingChunks > 0) {
+      const etaSeconds = Math.round(avgTimePerChunk * remainingChunks)
+      if (etaSeconds > 60) {
+        chunkUploadETA.value = `预计剩余 ${Math.floor(etaSeconds / 60)} 分 ${etaSeconds % 60} 秒`
+      } else {
+        chunkUploadETA.value = `预计剩余 ${etaSeconds} 秒`
+      }
+    } else {
+      chunkUploadETA.value = '即将完成...'
+    }
   }
+
+  return finalResponse
+}
+
+async function submitUpload() {
+  if (!pendingFiles.value.length || isMediaProcessing.value) return
+  const isVideo = pendingFiles.value.length === 1 && /\.(mp4|avi|mov|mkv|webm|flv)$/i.test(pendingFiles.value[0].name || '')
   uploading.value = true
   try {
-    const res = await taskApi.upload(batchId, formData)
+    let res: any
+    if (isVideo) {
+      const video = pendingFiles.value[0].raw
+      if (!video) {
+        ElMessage.warning('视频文件无效，请重新选择')
+        return
+      }
+      res = await uploadVideoInChunks(video)
+    } else {
+      const formData = new FormData()
+      pendingFiles.value.forEach((f) => {
+        if (f.raw) formData.append('files', f.raw)
+      })
+      res = await taskApi.upload(batchId, formData)
+    }
+
     pendingFiles.value = []
     uploadRef.value?.clearFiles()
     if (res.status === 202) {
@@ -879,7 +969,14 @@ async function submitUpload() {
       }
     }
   } catch { /* handled */ }
-  finally { uploading.value = false }
+  finally {
+    uploading.value = false
+    chunkUploadActive.value = false
+    chunkUploadedCount.value = 0
+    chunkTotalCount.value = 0
+    chunkUploadPercent.value = 0
+    chunkUploadETA.value = ''
+  }
 }
 
 async function saveBatchMetadata(showSuccessMessage = true): Promise<boolean> {
@@ -1409,6 +1506,33 @@ onUnmounted(() => {
 }
 .upload-actions {
   margin-top: 16px;
+}
+
+.chunk-upload-progress {
+  margin: -4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid #e6efff;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+.chunk-upload-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.chunk-upload-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2d3d;
+}
+.chunk-upload-meta {
+  font-size: 12px;
+  color: #5f6b7a;
+}
+.chunk-eta {
+  margin-left: 8px;
+  color: #909399;
 }
 
 .metadata-step-card {
