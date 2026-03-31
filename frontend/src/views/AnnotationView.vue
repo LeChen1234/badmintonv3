@@ -860,11 +860,19 @@ function onFileChange(_file: UploadFile, fileList: UploadFiles) {
   pendingFiles.value = fileList
 }
 
+async function generateHash(str: string) {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(str)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
 async function uploadVideoInChunks(file: File) {
   const totalChunks = Math.max(1, Math.ceil(file.size / VIDEO_CHUNK_SIZE))
   const rawId = `${file.name}_${file.size}_${file.lastModified}`
-  // 生成稳定的 uploadId（Base64 URL Safe，不含中文乱码问题）
-  const uploadId = btoa(encodeURIComponent(rawId)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  // 使用 SHA-256 生成 uploadId
+  const uploadId = await generateHash(rawId)
   let finalResponse: any = null
 
   let uploadedChunks = new Set<number>()

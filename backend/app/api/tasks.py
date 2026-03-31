@@ -410,7 +410,7 @@ def check_uploaded_chunks(
     if not _can_upload_for_batch(current_user, batch):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该任务的上传状态")
 
-    if not re.fullmatch(r"[a-zA-Z0-9_-]{8,128}", upload_id):
+    if not re.fullmatch(r"[a-zA-Z0-9_\-=+/]{8,1024}", upload_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "upload_id 无效")
 
     chunks = get_uploaded_chunks(batch_id, upload_id)
@@ -449,7 +449,7 @@ async def upload_media(
         if batch.media_process_status in (MediaProcessStatus.QUEUED.value, MediaProcessStatus.PROCESSING.value):
             raise HTTPException(status.HTTP_409_CONFLICT, "该任务已有视频正在处理中，请等待当前处理完成")
 
-        if not upload_id or not re.fullmatch(r"[a-zA-Z0-9_-]{8,128}", upload_id):
+        if not upload_id or not re.fullmatch(r"[a-zA-Z0-9_\-=+/]{8,1024}", upload_id):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "upload_id 无效")
         if chunk_index is None or total_chunks is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "缺少 chunk_index 或 total_chunks")
