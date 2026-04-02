@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="page-container">
     <el-card>
       <template #header>
         <div class="card-header">
@@ -8,11 +8,13 @@
             <el-select v-model="filterProject" placeholder="按项目筛选" clearable style="width: 200px; margin-right: 12px;">
               <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
             </el-select>
+            <el-button type="danger" :disabled="selectedIds.length === 0" @click="batchDelete">批量删除</el-button>
             <el-button type="primary" @click="showCreateDialog = true">新建任务批次</el-button>
           </div>
         </div>
       </template>
-      <el-table :data="tasks" stripe v-loading="loading">
+      <el-table :data="tasks" stripe v-loading="loading" @selection-change="handleSelectionChange">
+        <el-table-column type="selection" width="55" />
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="name" label="批次名称" />
         <el-table-column prop="action_category" label="动作类别" width="100" />
@@ -102,6 +104,7 @@ const projects = ref<any[]>([])
 const students = ref<any[]>([])
 const loading = ref(false)
 const filterProject = ref<number | null>(null)
+const selectedIds = ref<number[]>([])
 const showCreateDialog = ref(false)
 const showAssignDialog = ref(false)
 const assignBatchId = ref(0)
@@ -205,6 +208,33 @@ function goAnnotate(row: any) {
   router.push(`/annotate/${row.id}`)
 }
 
+function handleSelectionChange(selection: any[]) {
+  selectedIds.value = selection.map(item => item.id)
+}
+
+async function batchDelete() {
+  if (selectedIds.value.length === 0) return
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selectedIds.value.length} 个任务批次吗？该操作会同时删除这些任务下上传的帧文件，且不可恢复。`,
+      '确认批量删除',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+    for (const id of selectedIds.value) {
+      await taskApi.delete(id)
+    }
+    ElMessage.success('批量删除成功')
+    selectedIds.value = []
+    await loadTasks()
+  } catch {
+    // 取消删除或请求失败
+  }
+}
+
 async function checkMlEnabled() {
   try {
     const res = await request.get('/health')
@@ -217,5 +247,9 @@ onMounted(() => { loadTasks(); loadProjects(); loadStudents(); checkMlEnabled() 
 </script>
 
 <style scoped>
+.page-container {
+  background-color: #fff;
+}
+
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 </style>

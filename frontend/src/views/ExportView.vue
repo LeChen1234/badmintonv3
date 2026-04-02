@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="page-container">
     <el-card>
       <template #header><span>数据导出 - 已确认标注数据集</span></template>
       <el-form label-width="120px" style="max-width: 600px;">
@@ -96,3 +96,9 @@ async function doDownload() {
 
 onMounted(loadProjects)
 </script>
+
+<style scoped>
+.page-container {
+  background-color: #fff;
+}
+</style>

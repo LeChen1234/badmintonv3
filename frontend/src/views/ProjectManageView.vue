@@ -1,14 +1,18 @@
 <template>
-  <div>
+  <div class="page-container">
     <el-card>
       <template #header>
         <div class="card-header">
           <span>项目管理</span>
-          <el-button type="primary" @click="openCreate">新建项目</el-button>
+          <div>
+            <el-button type="danger" :disabled="selectedIds.length === 0" @click="batchDelete">批量删除</el-button>
+            <el-button type="primary" @click="openCreate">新建项目</el-button>
+          </div>
         </div>
       </template>
 
-      <el-table :data="projects" stripe v-loading="loading">
+      <el-table :data="projects" stripe v-loading="loading" @selection-change="handleSelectionChange">
+        <el-table-column type="selection" width="55" />
         <el-table-column prop="id" label="ID" width="70" />
         <el-table-column prop="name" label="项目名称" />
         <el-table-column prop="description" label="描述" min-width="220">
@@ -48,10 +52,11 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { projectApi } from '@/api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const projects = ref<any[]>([])
 const loading = ref(false)
+const selectedIds = ref<number[]>([])
 const showDialog = ref(false)
 const form = reactive({
   name: '',
@@ -102,10 +107,41 @@ async function removeProject(projectId: number) {
   }
 }
 
+function handleSelectionChange(selection: any[]) {
+  selectedIds.value = selection.map(item => item.id)
+}
+
+async function batchDelete() {
+  if (selectedIds.value.length === 0) return
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selectedIds.value.length} 个项目吗？该操作不可恢复。`,
+      '确认批量删除',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+    for (const id of selectedIds.value) {
+      await projectApi.delete(id)
+    }
+    ElMessage.success('批量删除成功')
+    selectedIds.value = []
+    await loadProjects()
+  } catch {
+    // 取消删除或请求失败
+  }
+}
+
 onMounted(loadProjects)
 </script>
 
 <style scoped>
+.page-container {
+  background-color: #fff;
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;

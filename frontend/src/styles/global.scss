@@ -26,4 +26,32 @@ body,
   --header-height: 56px;
   --color-bg: #f5f7fa;
   --color-sidebar: #1d1e2c;
+
+  /* 间距系统 */
+  --base-padding: 24px;
+  --base-padding-sm: 16px;
+  --base-padding-lg: 32px;
+  --base-gap: 20px;
+  --card-padding: 24px;
+  --list-item-gap: 15px;
+
+  /* 圆角规范 */
+  --border-radius: 8px;
+  --border-radius-lg: 16px;
+  --border-radius-sm: 4px;
+
+  /* 阴影系统 */
+  --shadow-default: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+  --shadow-card: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  --shadow-sidebar: 2px 0 6px rgba(0, 21, 41, 0.35);
+
+  /* 过渡动画 */
+  --transition-base: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+  --transition-duration: 0.3s;
+
+  /* 布局高度 */
+  --input-height: 32px;
+  --menu-item-height: 50px;
+  --stat-icon-size: 50px;
 }

@@ -1,17 +1,22 @@
 <template>
-  <div>
+  <div class="page-container">
     <el-card>
       <template #header>
         <div class="card-header">
           <span>审核流程</span>
-          <el-select v-model="statusFilter" placeholder="按状态筛选" clearable style="width: 180px;">
-            <el-option label="自核中" value="self_review" />
-            <el-option label="组长核对" value="leader_review" />
-            <el-option label="专家终审" value="expert_review" />
-          </el-select>
+          <div>
+            <el-select v-model="statusFilter" placeholder="按状态筛选" clearable style="width: 180px; margin-right: 12px;">
+              <el-option label="自核中" value="self_review" />
+              <el-option label="组长核对" value="leader_review" />
+              <el-option label="专家终审" value="expert_review" />
+            </el-select>
+            <el-button type="success" :disabled="selectedIds.length === 0" @click="batchApprove">批量通过</el-button>
+            <el-button type="danger" :disabled="selectedIds.length === 0" @click="openBatchReject">批量打回</el-button>
+          </div>
         </div>
       </template>
-      <el-table :data="filteredTasks" stripe v-loading="loading">
+      <el-table :data="filteredTasks" stripe v-loading="loading" @selection-change="handleSelectionChange">
+        <el-table-column type="selection" width="55" />
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="name" label="批次名称" />
         <el-table-column prop="assignee_name" label="标注员" width="100" />
@@ -71,6 +76,7 @@ import { ElMessage } from 'element-plus'
 const tasks = ref<any[]>([])
 const loading = ref(false)
 const statusFilter = ref('')
+const selectedIds = ref<number[]>([])
 const showRejectDialog = ref(false)
 const rejectComment = ref('')
 const rejectTaskId = ref(0)
@@ -123,15 +129,6 @@ function openReject(taskId: number) {
   showRejectDialog.value = true
 }
 
-async function doReject() {
-  try {
-    await reviewApi.reject(rejectTaskId.value, { result: 'reject', comment: rejectComment.value })
-    ElMessage.success('已打回')
-    showRejectDialog.value = false
-    loadTasks()
-  } catch { /* handled */ }
-}
-
 async function showHistory(taskId: number) {
   try {
     const res = await reviewApi.history(taskId)
@@ -140,9 +137,52 @@ async function showHistory(taskId: number) {
   } catch { /* handled */ }
 }
 
+function handleSelectionChange(selection: any[]) {
+  selectedIds.value = selection.map(item => item.id)
+}
+
+async function batchApprove() {
+  if (selectedIds.value.length === 0) return
+  try {
+    for (const id of selectedIds.value) {
+      await reviewApi.approve(id, { result: 'pass' })
+    }
+    ElMessage.success('批量审核通过成功')
+    selectedIds.value = []
+    await loadTasks()
+  } catch { /* handled */ }
+}
+
+function openBatchReject() {
+  if (selectedIds.value.length === 0) return
+  rejectComment.value = ''
+  showRejectDialog.value = true
+}
+
+async function doReject() {
+  try {
+    if (selectedIds.value.length > 0) {
+      for (const id of selectedIds.value) {
+        await reviewApi.reject(id, { result: 'reject', comment: rejectComment.value })
+      }
+      ElMessage.success('批量打回成功')
+      selectedIds.value = []
+    } else {
+      await reviewApi.reject(rejectTaskId.value, { result: 'reject', comment: rejectComment.value })
+      ElMessage.success('已打回')
+    }
+    showRejectDialog.value = false
+    loadTasks()
+  } catch { /* handled */ }
+}
+
 onMounted(loadTasks)
 </script>
 
 <style scoped>
+.page-container {
+  background-color: #fff;
+}
+
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 </style>

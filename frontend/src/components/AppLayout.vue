@@ -111,7 +111,7 @@ function handleCommand(cmd: string) {
 }
 </script>
 
-<style scoped lang="scss">
+<style scoped>
 .app-layout {
   height: 100vh;
 }
@@ -162,10 +162,10 @@ function handleCommand(cmd: string) {
   cursor: pointer;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   transition: color 0.2s;
+}
 
-  &:hover {
-    color: #fff;
-  }
+.sidebar-toggle:hover {
+  color: #fff;
 }
 
 .app-header {
