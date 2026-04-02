@@ -172,8 +172,8 @@
       </div>
 
       <template v-else-if="canAnnotate">
-        <el-row :gutter="20">
-          <el-col :span="16">
+        <div class="annotate-layout">
+          <div class="annotate-left">
             <div class="frame-area">
               <!-- 帧图片 + 关键点画布 + 标注可视化叠加 -->
               <div class="frame-wrapper" v-if="frameImageUrl">
@@ -237,9 +237,9 @@
             <div class="re-upload-row">
               <el-button size="small" type="info" plain :disabled="isMediaProcessing" @click="showReUpload = true">重新上传图片/视频</el-button>
             </div>
-          </el-col>
+          </div>
 
-          <el-col :span="8">
+          <div class="annotate-right">
             <el-form label-width="90px" label-position="top" class="annotation-form">
               <el-form-item label="选手（必选）">
                 <el-select v-model="form.selected_player_id" placeholder="选择选手" style="width: 100%;">
@@ -352,8 +352,8 @@
                 </el-button>
               </div>
             </el-form>
-          </el-col>
-        </el-row>
+          </div>
+        </div>
       </template>
     </el-card>
 
@@ -1604,10 +1604,28 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 
+.annotate-layout {
+  display: flex;
+  height: calc(100vh - 180px);
+  gap: 20px;
+}
+
+.annotate-left {
+  flex: 0 0 66.666%;
+  display: flex;
+  flex-direction: column;
+}
+
+.annotate-right {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 .frame-area {
   border: 2px dashed #dcdfe6;
   border-radius: 8px;
-  min-height: 400px;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;

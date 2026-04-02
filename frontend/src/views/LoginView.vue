@@ -147,49 +147,88 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--color-bg);
+  padding: var(--base-padding);
 }
+
 .login-card {
-  width: 420px;
+  width: 100%;
+  max-width: 420px;
   padding: 40px;
   background: #fff;
   border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  transition: var(--transition-base);
 }
+
 .login-header {
   text-align: center;
-  margin-bottom: 24px;
+  margin-bottom: var(--base-padding);
 }
+
 .login-header h1 {
   margin: 0 0 8px;
   font-size: 22px;
   color: #303133;
+  font-weight: 700;
 }
+
 .login-header p {
   margin: 0;
   color: #909399;
   font-size: 13px;
 }
+
 .tab-switch {
   display: flex;
   justify-content: center;
   gap: 32px;
-  margin-bottom: 24px;
+  margin-bottom: var(--base-padding);
 }
+
 .tab-switch span {
   font-size: 16px;
   color: #909399;
   cursor: pointer;
   padding-bottom: 6px;
   border-bottom: 2px solid transparent;
-  transition: all 0.2s;
+  transition: var(--transition-base);
 }
+
 .tab-switch span.active {
   color: #409eff;
   border-bottom-color: #409eff;
   font-weight: 600;
 }
+
+.tab-switch span:hover:not(.active) {
+  color: #606266;
+}
+
 .login-btn {
   width: 100%;
+  height: 44px;
+  font-size: 16px;
+  border-radius: 4px;
+  transition: var(--transition-base);
+}
+
+.login-btn:hover {
+  transform: translateY(-1px);
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: var(--base-padding);
+    border-radius: 8px;
+  }
+
+  .login-header h1 {
+    font-size: 18px;
+  }
+
+  .tab-switch {
+    gap: 24px;
+  }
 }
 </style>
