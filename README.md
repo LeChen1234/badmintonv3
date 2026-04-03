@@ -11,35 +11,57 @@
 | 管理后端 | FastAPI + SQLAlchemy | 8000 | RBAC / 任务分配 / 审核流程 / 数据导出 |
 | 管理前端 | Vue 3 + Element Plus | 3000 | 管理仪表盘 |
 | 数据库 | SQLite | - | 本地单文件数据库（`data/badminton.db`） |
-| 对象存储 | MinIO | 9000/9001 | 视频帧 / 骨架图 |
 | 缓存 | Redis 7 | 6379 | 任务队列 / 缓存 |
 
 ## 快速开始
 
-本地需安装 Python 3.10+、Node.js 18+。
+### 安装 Docker
+
+参考 [Docker 官方文档](https://docs.docker.com/engine/install/) 安装 Docker。
+
+对于 Debian/Ubuntu：
 
 ```bash
-# 1. 复制环境变量文件并修改（也可用 examples/env.minimal.sample）
-cp .env.example .env
-# 编辑 .env，至少设置 LABEL_STUDIO_API_KEY（见下方说明）
+sudo apt remove $(dpkg --get-selections docker.io docker-compose docker-doc podman-docker containerd runc | cut -f1)
+# Add Docker's official GPG key:
+sudo apt update
+sudo apt install ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
 
-# 2. 安装依赖并执行数据库迁移（Windows PowerShell 推荐）
-.\scripts\install_and_run.ps1
+# Add the repository to Apt sources:
+sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/debian
+Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
 
-# 3. 启动后端与前端（或双击 run_backend.bat、run_frontend.bat）
-cd backend && ..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-# 另开终端：
-cd frontend && npm run dev
+sudo apt update
 
-# 4. 初始化平台（创建 LS 项目、用户等；需先在 http://localhost:8080 创建 API Token 并填入 .env）
-python scripts/init_platform.py
-
-# 5. 导入测试数据
-python scripts/generate_mock_data.py
+sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 ```
 
-- **样例配置与 API 示例**：见 [examples/](examples/) 目录（含 `env.minimal.sample`、`api-examples.http`）。
-- **完整使用演示**：见 [docs/使用说明.md](docs/使用说明.md)。
+对于 Windows，应该下载并安装 [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/)。
+
+
+### 克隆仓库
+
+```bash
+git clone https://github.com/LeChen1234/badmintonv3.git
+```
+
+### 启动服务
+
+```bash
+cd badmintonv3
+docker-compose up -d
+```
+
+你应该可以访问 [http://localhost:8080](http://localhost:8080) 来使用平台，默认管理员账号是 `admin` / `admin123`。
 
 ## 标注流程
 
@@ -73,12 +95,3 @@ python scripts/generate_mock_data.py
 - **LabelStudio JSON** — 完整标注日志，支持溯源
 - **COCO JSON** — 对接 MMPose / MMDetection 训练
 - **CSV** — 数据清洗与统计分析
-- **VLM JSON** — 对接视觉语言模型训练
-
-## 仓库与克隆
-
-```bash
-git clone https://github.com/LeChen1234/badminton.git
-cd badminton
-# 然后按「快速开始」执行
-```
