@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserRole
-from app.schemas.user import Token, UserLogin, UserOut, UserRegister
+from app.schemas.user import Token, UserLogin, UserOut, UserRegister, ChangePassword, ChangePasswordResponse
 from app.core.security import (
     verify_password,
     create_access_token,
@@ -54,3 +54,38 @@ def login(body: UserLogin, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserOut)
 def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.post("/change-password", response_model=ChangePasswordResponse)
+def change_password(
+    body: ChangePassword,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """修改当前登录用户的密码"""
+    # 验证新密码和确认密码是否匹配
+    if body.new_password != body.confirm_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="新密码和确认密码不匹配"
+        )
+    
+    # 验证旧密码是否正确
+    if not verify_password(body.old_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="旧密码错误"
+        )
+    
+    # 检查新密码是否与旧密码相同
+    if verify_password(body.new_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="新密码不能与旧密码相同"
+        )
+    
+    # 更新密码
+    current_user.password_hash = hash_password(body.new_password)
+    db.commit()
+    
+    return ChangePasswordResponse()

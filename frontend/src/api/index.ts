@@ -10,6 +10,8 @@ export const authApi = {
   register: (data: { username: string; password: string; display_name: string }) =>
     request.post('/auth/register', data),
   me: () => request.get('/auth/me'),
+  changePassword: (data: { old_password: string; new_password: string; confirm_password: string }) =>
+    request.post('/auth/change-password', data),
 }
 
 export const userApi = {

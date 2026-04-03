@@ -53,3 +53,15 @@ class TokenData(BaseModel):
     user_id: int
     username: str
     role: UserRole
+
+
+class ChangePassword(BaseModel):
+    """修改密码请求"""
+    old_password: str = Field(..., min_length=6, max_length=128)
+    new_password: str = Field(..., min_length=6, max_length=128)
+    confirm_password: str = Field(..., min_length=6, max_length=128)
+
+
+class ChangePasswordResponse(BaseModel):
+    """修改密码响应"""
+    message: str = "密码修改成功"
