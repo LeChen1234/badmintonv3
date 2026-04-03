@@ -42,6 +42,27 @@
           <el-input v-model="registerForm.confirmPassword" type="password" prefix-icon="Lock" placeholder="再次输入密码"
             show-password size="large" @keyup.enter="handleRegister" />
         </el-form-item>
+        <el-form-item label="图片验证码" prop="captcha_answer">
+          <div class="captcha-row">
+            <el-input
+              v-model="registerForm.captcha_answer"
+              placeholder="请输入图片中的字符"
+              size="large"
+              @keyup.enter="handleRegister"
+            />
+            <el-button size="large" @click="fetchCaptcha">刷新</el-button>
+          </div>
+          <div class="captcha-image-wrap">
+            <img
+              v-if="captchaImage"
+              :src="captchaImage"
+              alt="captcha"
+              class="captcha-image"
+              @click="fetchCaptcha"
+            />
+            <div v-else class="captcha-fallback">验证码加载中...</div>
+          </div>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="loading" size="large" class="login-btn" @click="handleRegister">
             注 册
@@ -53,7 +74,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { authApi, configApi } from '@/api'
 import { ElMessage } from 'element-plus'
@@ -65,6 +86,7 @@ const allowRegister = ref<boolean | null>(null)
 const loginFormRef = ref<FormInstance>()
 const registerFormRef = ref<FormInstance>()
 const loading = ref(false)
+const captchaImage = ref('')
 
 const loginForm = reactive({ username: '', password: '' })
 const loginRules: FormRules = {
@@ -72,7 +94,14 @@ const loginRules: FormRules = {
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
 }
 
-const registerForm = reactive({ username: '', display_name: '', password: '', confirmPassword: '' })
+const registerForm = reactive({
+  username: '',
+  display_name: '',
+  password: '',
+  confirmPassword: '',
+  captcha_id: '',
+  captcha_answer: '',
+})
 const registerRules: FormRules = {
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
@@ -93,6 +122,18 @@ const registerRules: FormRules = {
       trigger: 'blur',
     },
   ],
+  captcha_answer: [{ required: true, message: '请输入验证码', trigger: 'blur' }],
+}
+
+async function fetchCaptcha() {
+  try {
+    const res = await authApi.getCaptcha()
+    registerForm.captcha_id = res.data.captcha_id
+    captchaImage.value = res.data.image_base64
+    registerForm.captcha_answer = ''
+  } catch {
+    captchaImage.value = ''
+  }
 }
 
 async function handleLogin() {
@@ -110,6 +151,10 @@ async function handleLogin() {
 }
 
 async function handleRegister() {
+  if (!registerForm.captcha_id) {
+    await fetchCaptcha()
+  }
+
   const valid = await registerFormRef.value?.validate().catch(() => false)
   if (!valid) return
   loading.value = true
@@ -118,12 +163,15 @@ async function handleRegister() {
       username: registerForm.username,
       password: registerForm.password,
       display_name: registerForm.display_name,
+      captcha_id: registerForm.captcha_id,
+      captcha_answer: registerForm.captcha_answer,
     })
     ElMessage.success('注册成功，请登录')
     mode.value = 'login'
     loginForm.username = registerForm.username
     loginForm.password = ''
   } catch {
+    await fetchCaptcha()
     /* error handled by interceptor */
   } finally {
     loading.value = false
@@ -135,8 +183,16 @@ onMounted(async () => {
     const res = await configApi.getConfig()
     allowRegister.value = res.data?.allow_public_register ?? true
     if (!allowRegister.value) mode.value = 'login'
+    if (allowRegister.value) await fetchCaptcha()
   } catch {
     allowRegister.value = true
+    await fetchCaptcha()
+  }
+})
+
+watch(mode, async (newMode) => {
+  if (newMode === 'register' && allowRegister.value !== false) {
+    await fetchCaptcha()
   }
 })
 </script>
@@ -191,5 +247,42 @@ onMounted(async () => {
 }
 .login-btn {
   width: 100%;
+}
+
+.captcha-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.captcha-question {
+  margin-top: 8px;
+  color: #606266;
+  font-size: 13px;
+}
+
+.captcha-image-wrap {
+  margin-top: 8px;
+}
+
+.captcha-image {
+  height: 64px;
+  width: 180px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #f5f7fa;
+}
+
+.captcha-fallback {
+  height: 64px;
+  width: 180px;
+  border: 1px dashed #dcdfe6;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #909399;
+  font-size: 12px;
 }
 </style>
