@@ -9,7 +9,8 @@ import logging
 import math
 import shutil
 from pathlib import Path
-from typing import List, Optional, Tuple
+from time import monotonic
+from typing import Callable, List, Optional, Tuple
 
 import cv2
 
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 # COCO 身体关键点索引（去掉 0-4 头部）
 _BODY_KPT_INDICES = list(range(5, 17))
+ProgressCallback = Callable[[str, int, int], None]
 
 
 def _find_yolo_model() -> Optional[Path]:
@@ -75,6 +77,7 @@ def extract_and_filter_video(
     min_people: int = 2,
     min_shared_joints: int = 8,
     max_frames: int = 2000,
+    progress_callback: Optional[ProgressCallback] = None,
 ) -> List[Path]:
     """从视频抽帧，写入 out_dir，返回保存路径列表。
 
@@ -91,7 +94,7 @@ def extract_and_filter_video(
 
     # 无需过滤 → 直接均匀抽帧，无需 YOLO
     if motion_percentile is None:
-        return _plain_extract(video_path, out_dir, target_fps, max_frames)
+        return _plain_extract(video_path, out_dir, target_fps, max_frames, progress_callback=progress_callback)
 
     # 需要过滤 → 尝试加载 YOLO
     model_path = _find_yolo_model()
@@ -100,13 +103,13 @@ def extract_and_filter_video(
             "yolo_preprocess: 未找到 yolov8n-pose.pt（已查找 data/models/），"
             "降级为均匀抽帧（不过滤）。"
         )
-        return _plain_extract(video_path, out_dir, target_fps, max_frames)
+        return _plain_extract(video_path, out_dir, target_fps, max_frames, progress_callback=progress_callback)
 
     try:
         from ultralytics import YOLO
     except ImportError:
         logger.warning("yolo_preprocess: ultralytics 未安装，降级为均匀抽帧（不过滤）。")
-        return _plain_extract(video_path, out_dir, target_fps, max_frames)
+        return _plain_extract(video_path, out_dir, target_fps, max_frames, progress_callback=progress_callback)
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -124,6 +127,7 @@ def extract_and_filter_video(
             min_people,
         )
         original_fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        total_source_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
         time_interval = 1.0 / max(0.1, target_fps)
         logger.info("yolo_preprocess: 加载模型 %s", model_path.name)
         model = YOLO(str(model_path))
@@ -137,11 +141,19 @@ def extract_and_filter_video(
         frame_count = 0
         candidate_idx = 0
         next_process_time = 0.0
+        last_progress_tick = 0.0
 
         while cap.isOpened():
             ok, frame = cap.read()
             if not ok:
                 break
+
+            if progress_callback and total_source_frames > 0:
+                now = monotonic()
+                processed = min(frame_count + 1, total_source_frames)
+                if processed == 1 or processed >= total_source_frames or (now - last_progress_tick) >= 1.0:
+                    progress_callback("infer", processed, total_source_frames)
+                    last_progress_tick = now
 
             current_time = frame_count / original_fps
             if current_time >= next_process_time:
@@ -178,6 +190,9 @@ def extract_and_filter_video(
                 next_process_time += time_interval
             frame_count += 1
 
+        if progress_callback and total_source_frames > 0:
+            progress_callback("infer", total_source_frames, total_source_frames)
+
         if not candidate_paths_and_scores:
             return []
 
@@ -192,7 +207,9 @@ def extract_and_filter_video(
             len(candidate_paths_and_scores),
         )
 
-        for cand_path, score in candidate_paths_and_scores:
+        for current_idx, (cand_path, score) in enumerate(candidate_paths_and_scores, start=1):
+            if progress_callback:
+                progress_callback("filter", current_idx, len(candidate_paths_and_scores))
             if score < threshold:
                 continue
             out_path = out_dir / f"frame_{len(saved):08d}.jpg"
@@ -200,6 +217,9 @@ def extract_and_filter_video(
             saved.append(out_path)
             if len(saved) >= max_frames:
                 break
+
+        if progress_callback and candidate_paths_and_scores:
+            progress_callback("filter", len(candidate_paths_and_scores), len(candidate_paths_and_scores))
 
         return saved
 
@@ -215,6 +235,7 @@ def _plain_extract(
     out_dir: Path,
     target_fps: float,
     max_frames: int,
+    progress_callback: Optional[ProgressCallback] = None,
 ) -> List[Path]:
     """不使用 YOLO、按时间间隔均匀抽帧的降级实现。"""
     cap = cv2.VideoCapture(str(video_path))
@@ -224,16 +245,26 @@ def _plain_extract(
 
     try:
         original_fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        total_source_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
         time_interval = 1.0 / max(0.1, target_fps)
         next_process_time = 0.0
         frame_count = 0
         out_idx = 0
         saved: List[Path] = []
+        last_progress_tick = 0.0
 
         while cap.isOpened() and out_idx < max_frames:
             ok, frame = cap.read()
             if not ok:
                 break
+
+            if progress_callback and total_source_frames > 0:
+                now = monotonic()
+                processed = min(frame_count + 1, total_source_frames)
+                if processed == 1 or processed >= total_source_frames or (now - last_progress_tick) >= 1.0:
+                    progress_callback("plain", processed, total_source_frames)
+                    last_progress_tick = now
+
             current_time = frame_count / original_fps
             if current_time >= next_process_time:
                 out_path = out_dir / f"frame_{out_idx:08d}.jpg"
@@ -242,6 +273,9 @@ def _plain_extract(
                 out_idx += 1
                 next_process_time += time_interval
             frame_count += 1
+
+        if progress_callback and total_source_frames > 0:
+            progress_callback("plain", total_source_frames, total_source_frames)
 
         return saved
 

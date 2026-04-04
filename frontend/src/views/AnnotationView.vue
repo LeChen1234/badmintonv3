@@ -30,6 +30,18 @@
         style="margin-bottom: 16px;"
       />
 
+      <div
+        v-if="isMediaProcessing && mediaProcessPercent !== null"
+        class="media-processing-progress"
+      >
+        <div class="media-processing-progress-head">
+          <span>后台处理进度</span>
+          <span>{{ mediaProcessPercent }}%</span>
+        </div>
+        <el-progress :percentage="mediaProcessPercent" :stroke-width="10" />
+        <p v-if="mediaProcessProgressText" class="media-processing-progress-text">{{ mediaProcessProgressText }}</p>
+      </div>
+
       <div v-if="chunkUploadActive" class="chunk-upload-progress">
         <div class="chunk-upload-head">
           <span class="chunk-upload-title">视频上传进度</span>
@@ -455,6 +467,8 @@ const mediaProcessStatus = ref<'idle' | 'queued' | 'processing' | 'completed' | 
 const mediaProcessMessage = ref('')
 const mediaProcessStartedAt = ref<string | null>(null)
 const mediaProcessFinishedAt = ref<string | null>(null)
+const mediaProcessPercent = ref<number | null>(null)
+const mediaProcessProgressText = ref('')
 let mediaStatusPollTimer: number | null = null
 
 const isVideoSelected = computed(
@@ -574,6 +588,32 @@ function applyMediaProcessState(data: any) {
   mediaProcessMessage.value = data?.media_process_message || ''
   mediaProcessStartedAt.value = data?.media_process_started_at || null
   mediaProcessFinishedAt.value = data?.media_process_finished_at || null
+
+  if (mediaProcessStatus.value !== 'queued' && mediaProcessStatus.value !== 'processing') {
+    mediaProcessPercent.value = null
+    mediaProcessProgressText.value = ''
+    return
+  }
+
+  const msg = mediaProcessMessage.value
+  const progressMatch = msg.match(/([\u4e00-\u9fa5A-Za-z]+)\s*(\d+)\s*\/\s*(\d+),\s*(\d+)%/)
+  if (!progressMatch) {
+    mediaProcessPercent.value = null
+    mediaProcessProgressText.value = ''
+    return
+  }
+
+  const stage = progressMatch[1] || ''
+  const current = Number(progressMatch[2])
+  const total = Number(progressMatch[3])
+  const percent = Number(progressMatch[4])
+
+  mediaProcessPercent.value = Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : null
+  if (Number.isFinite(current) && Number.isFinite(total) && total > 0) {
+    mediaProcessProgressText.value = `${stage} ${current}/${total}`
+  } else {
+    mediaProcessProgressText.value = ''
+  }
 }
 
 function applyBatchMetadataState(data: any) {
@@ -1472,6 +1512,26 @@ onUnmounted(() => {
   font-size: 12px;
   color: #909399;
   margin-top: 8px;
+}
+.media-processing-progress {
+  margin: -6px 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f7fbff;
+  border: 1px solid #d9ecff;
+}
+.media-processing-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #606266;
+  margin-bottom: 8px;
+}
+.media-processing-progress-text {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #909399;
 }
 .yolo-settings-card {
   margin-top: 14px;

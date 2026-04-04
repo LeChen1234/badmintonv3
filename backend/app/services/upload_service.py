@@ -4,6 +4,7 @@ import shutil
 import logging
 from pathlib import Path
 from datetime import datetime
+from time import monotonic
 from typing import BinaryIO, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
@@ -70,7 +71,12 @@ def _save_uploaded_images(
     return results
 
 
-def _extract_frames_from_video(video_path: Path, out_dir: Path, max_frames: int = 500) -> List[Path]:
+def _extract_frames_from_video(
+    video_path: Path,
+    out_dir: Path,
+    max_frames: int = 500,
+    progress_callback=None,
+) -> List[Path]:
     """使用 opencv 从视频提取帧，保存到 out_dir，返回保存的文件路径列表。"""
     try:
         import cv2
@@ -90,17 +96,27 @@ def _extract_frames_from_video(video_path: Path, out_dir: Path, max_frames: int 
     saved = []
     frame_idx = 0
     out_idx = 1
+    last_progress_tick = 0.0
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
+        if progress_callback:
+            now = monotonic()
+            processed = min(frame_idx + 1, total)
+            if processed == 1 or processed >= total or (now - last_progress_tick) >= 1.0:
+                progress_callback("plain", processed, total)
+                last_progress_tick = now
         if frame_idx % step == 0 and out_idx <= max_frames:
             out_path = out_dir / f"frame_{out_idx}.jpg"
             cv2.imwrite(str(out_path), frame)
             saved.append(out_path)
             out_idx += 1
         frame_idx += 1
+
+    if progress_callback:
+        progress_callback("plain", total, total)
 
     cap.release()
     return saved
@@ -113,6 +129,7 @@ def _extract_video_to_paths(
     max_frames: int = 500,
     use_yolo: bool = False,
     motion_percentile: Optional[float] = None,
+    progress_callback=None,
 ) -> List[Path]:
     if use_yolo:
         from app.services.yolo_preprocess_service import extract_and_filter_video
@@ -123,8 +140,27 @@ def _extract_video_to_paths(
             target_fps=10.0,
             motion_percentile=motion_percentile,
             max_frames=max_frames,
+            progress_callback=progress_callback,
         )
-    return _extract_frames_from_video(video_path, out_dir, max_frames=max_frames)
+    return _extract_frames_from_video(video_path, out_dir, max_frames=max_frames, progress_callback=progress_callback)
+
+
+def _build_media_progress_message(
+    source_name: str,
+    stage: str,
+    processed: int,
+    total: int,
+) -> str:
+    if total <= 0:
+        return f"正在后台处理视频：{source_name}"
+    percent = int((processed / total) * 100)
+    percent = max(0, min(100, percent))
+    stage_label = {
+        "infer": "YOLO推理",
+        "filter": "动作筛选",
+        "plain": "抽帧",
+    }.get(stage, "处理中")
+    return f"正在后台处理视频：{source_name}（{stage_label} {processed}/{total}, {percent}%）"
 
 
 def stage_uploaded_video(batch_id: int, content: bytes, filename: str) -> Path:
@@ -236,12 +272,38 @@ def process_uploaded_video_in_background(
         frames_dir = processing_dir / "frames"
         frames_dir.mkdir(parents=True, exist_ok=True)
 
+        last_progress = {"stage": None, "percent": -1, "tick": 0.0}
+
+        def on_progress(stage: str, processed: int, total: int) -> None:
+            if total <= 0:
+                return
+            percent = int((processed / total) * 100)
+            now = monotonic()
+            same_stage = last_progress["stage"] == stage
+            if processed < total and same_stage and percent <= int(last_progress["percent"]):
+                return
+            if processed < total and same_stage and (now - float(last_progress["tick"])) < 0.8 and (percent - int(last_progress["percent"])) < 1:
+                return
+
+            task_service.update_media_process_state(
+                db,
+                batch,
+                MediaProcessStatus.PROCESSING,
+                message=_build_media_progress_message(source_name, stage, processed, total),
+                started_at=batch.media_process_started_at,
+                finished_at=None,
+            )
+            last_progress["stage"] = stage
+            last_progress["percent"] = percent
+            last_progress["tick"] = now
+
         saved_paths = _extract_video_to_paths(
             video_path,
             frames_dir,
             max_frames=max_frames,
             use_yolo=use_yolo,
             motion_percentile=motion_percentile,
+            progress_callback=on_progress,
         )
         if not saved_paths:
             raise RuntimeError("未提取到任何帧，请检查视频内容或参数设置")
