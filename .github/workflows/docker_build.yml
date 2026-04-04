@@ -7,6 +7,15 @@ on:
 jobs:
   build_and_docker:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image_name: badminton_backend
+            dockerfile: backend/Dockerfile
+            cache_scope: backend
+          - image_name: badminton_frontend
+            dockerfile: frontend/Dockerfile
+            cache_scope: frontend
 
     steps:
       - name: Checkout
@@ -16,7 +25,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/badmintonv3
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image_name }}
           tags: |
             type=sha,format=short,prefix=
             latest
@@ -34,9 +43,10 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: true
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           annotations: ${{ steps.meta.outputs.annotations }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
