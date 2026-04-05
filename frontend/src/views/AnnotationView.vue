@@ -187,26 +187,40 @@
         <el-row :gutter="20">
           <el-col :span="16">
             <div class="frame-area">
+              <div class="frame-zoom-toolbar" v-if="frameImageUrl">
+                <el-button size="small" @click="zoomOutFrame" :disabled="frameZoom <= MIN_FRAME_ZOOM">-</el-button>
+                <el-button size="small" @click="resetFrameZoom" :disabled="frameZoom === 1">重置</el-button>
+                <el-button size="small" @click="zoomInFrame" :disabled="frameZoom >= MAX_FRAME_ZOOM">+</el-button>
+                <span class="frame-zoom-text">缩放 {{ Math.round(frameZoom * 100) }}%</span>
+                <span class="frame-zoom-hint">滚轮缩放；空格/中键拖动</span>
+              </div>
               <!-- 帧图片 + 关键点画布 + 标注可视化叠加 -->
               <div class="frame-wrapper" v-if="frameImageUrl">
-                <div class="frame-img-wrap" ref="frameWrapRef">
-                  <img
-                    ref="frameImgRef"
-                    :src="frameImageUrl"
-                    class="frame-img"
-                    alt="当前帧"
-                    @error="onImageError"
-                    @load="drawKeypointsCanvas"
-                  />
-                  <canvas
-                    ref="canvasRef"
-                    class="keypoints-canvas"
-                    @click="onCanvasClick"
-                    @mousedown="onCanvasMouseDown"
-                    @mousemove="onCanvasMouseMove"
-                    @mouseup="onCanvasMouseUp"
-                    @mouseleave="onCanvasMouseUp"
-                  />
+                <div
+                  class="frame-viewport"
+                  :class="{ 'is-pannable': frameZoom > 1 || framePanX !== 0 || framePanY !== 0, 'is-panning': isPanningViewport }"
+                  @wheel.prevent="onFrameWheel"
+                  @mousedown.capture="onViewportMouseDown"
+                >
+                  <div class="frame-img-wrap" ref="frameWrapRef" :style="frameTransformStyle">
+                    <img
+                      ref="frameImgRef"
+                      :src="frameImageUrl"
+                      class="frame-img"
+                      alt="当前帧"
+                      @error="onImageError"
+                      @load="drawKeypointsCanvas"
+                    />
+                    <canvas
+                      ref="canvasRef"
+                      class="keypoints-canvas"
+                      @click="onCanvasClick"
+                      @mousedown="onCanvasMouseDown"
+                      @mousemove="onCanvasMouseMove"
+                      @mouseup="onCanvasMouseUp"
+                      @mouseleave="onCanvasMouseUp"
+                    />
+                  </div>
                 </div>
                 <div class="annotation-overlay" v-if="currentAnnotation || selectedPlayerLabel || form.action_type || form.action_phase || form.quality_rating">
                   <div class="overlay-tags">
@@ -548,6 +562,22 @@ const selectedKeypointIndex = ref(0)
 const frameImgRef = ref<HTMLImageElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const frameWrapRef = ref<HTMLDivElement | null>(null)
+const MIN_FRAME_ZOOM = 0.5
+const MAX_FRAME_ZOOM = 4
+const FRAME_ZOOM_STEP = 0.1
+const frameZoom = ref(1)
+const framePanX = ref(0)
+const framePanY = ref(0)
+const isSpacePressed = ref(false)
+const isPanningViewport = ref(false)
+const panStartClientX = ref(0)
+const panStartClientY = ref(0)
+const panStartX = ref(0)
+const panStartY = ref(0)
+const frameTransformStyle = computed(() => ({
+  transform: `translate(${framePanX.value}px, ${framePanY.value}px) scale(${frameZoom.value})`,
+  transformOrigin: 'top left',
+}))
 const draggingPointIndex = ref<number | null>(null)
 const predictingKeypoints = ref(false)
 /** 本次按下后是否发生了拖拽，用于区分点击与拖拽 */
@@ -1086,6 +1116,64 @@ function goReUpload() {
   loadBatchInfo()
 }
 
+function clampFrameZoom(value: number) {
+  return Math.max(MIN_FRAME_ZOOM, Math.min(MAX_FRAME_ZOOM, Number(value.toFixed(2))))
+}
+
+function setFrameZoom(value: number) {
+  frameZoom.value = clampFrameZoom(value)
+}
+
+function zoomInFrame() {
+  setFrameZoom(frameZoom.value + FRAME_ZOOM_STEP)
+}
+
+function zoomOutFrame() {
+  setFrameZoom(frameZoom.value - FRAME_ZOOM_STEP)
+}
+
+function resetFrameZoom() {
+  frameZoom.value = 1
+  framePanX.value = 0
+  framePanY.value = 0
+}
+
+function onFrameWheel(e: WheelEvent) {
+  const delta = e.deltaY < 0 ? FRAME_ZOOM_STEP : -FRAME_ZOOM_STEP
+  setFrameZoom(frameZoom.value + delta)
+}
+
+function endViewportPan() {
+  isPanningViewport.value = false
+  window.removeEventListener('mousemove', onViewportMouseMove)
+  window.removeEventListener('mouseup', onViewportMouseUp)
+}
+
+function onViewportMouseMove(e: MouseEvent) {
+  if (!isPanningViewport.value) return
+  framePanX.value = panStartX.value + (e.clientX - panStartClientX.value)
+  framePanY.value = panStartY.value + (e.clientY - panStartClientY.value)
+}
+
+function onViewportMouseUp() {
+  endViewportPan()
+}
+
+function onViewportMouseDown(e: MouseEvent) {
+  const byMiddleButton = e.button === 1
+  const bySpaceAndLeft = isSpacePressed.value && e.button === 0
+  if (!byMiddleButton && !bySpaceAndLeft) return
+  e.preventDefault()
+  e.stopPropagation()
+  isPanningViewport.value = true
+  panStartClientX.value = e.clientX
+  panStartClientY.value = e.clientY
+  panStartX.value = framePanX.value
+  panStartY.value = framePanY.value
+  window.addEventListener('mousemove', onViewportMouseMove)
+  window.addEventListener('mouseup', onViewportMouseUp)
+}
+
 function drawKeypointsCanvas() {
   nextTick(() => {
     const canvas = canvasRef.value
@@ -1443,6 +1531,11 @@ function onKeydown(e: KeyboardEvent) {
   if (!canAnnotate.value) return
   const target = e.target as HTMLElement
   if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || (target as HTMLInputElement).isContentEditable) return
+  if (e.key === ' ') {
+    isSpacePressed.value = true
+    e.preventDefault()
+    return
+  }
   if (e.key === 'ArrowLeft') {
     e.preventDefault()
     prevFrame()
@@ -1452,6 +1545,12 @@ function onKeydown(e: KeyboardEvent) {
   } else if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault()
     saveAnnotation()
+  }
+}
+
+function onKeyup(e: KeyboardEvent) {
+  if (e.key === ' ') {
+    isSpacePressed.value = false
   }
 }
 
@@ -1471,10 +1570,13 @@ onMounted(async () => {
     await loadAnnotation()
   }
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener('keyup', onKeyup)
 })
 onUnmounted(() => {
   stopMediaStatusPolling()
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('keyup', onKeyup)
+  endViewportPan()
   revokeFrameImageUrl()
 })
 </script>
@@ -1675,6 +1777,28 @@ onUnmounted(() => {
   margin-bottom: 16px;
   position: relative;
 }
+.frame-zoom-toolbar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #ebeef5;
+}
+.frame-zoom-text {
+  font-size: 12px;
+  color: #303133;
+  min-width: 72px;
+}
+.frame-zoom-hint {
+  font-size: 12px;
+  color: #909399;
+}
 .frame-wrapper {
   position: relative;
   width: 100%;
@@ -1682,6 +1806,18 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+.frame-viewport {
+  max-width: 100%;
+  max-height: 520px;
+  overflow: auto;
+  cursor: default;
+}
+.frame-viewport.is-pannable {
+  cursor: grab;
+}
+.frame-viewport.is-panning {
+  cursor: grabbing;
 }
 .frame-img-wrap {
   position: relative;
