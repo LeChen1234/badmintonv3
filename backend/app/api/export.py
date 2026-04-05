@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import Response, FileResponse
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -57,10 +57,7 @@ def _to_export_json(annotations, batch_map):
             "selected_player_id": ann.selected_player_id,
             "selected_player_name": ann.selected_player_obj.name if ann.selected_player_obj else "",
             "keypoints": ann.keypoints,
-            "box_x": ann.box_x,
-            "box_y": ann.box_y,
-            "box_w": ann.box_w,
-            "box_h": ann.box_h,
+            "bbox": [ann.box_x, ann.box_y, ann.box_w, ann.box_h],
             "action_type": ann.action_type,
             "action_phase": ann.action_phase,
             "quality_rating": ann.quality_rating,
@@ -90,10 +87,10 @@ def _records_to_coco(records: list, project_name: str) -> dict:
         "supercategory": "person",
         "keypoints": kp_names,
         "skeleton": [
-            [0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6],
-            [3, 7], [7, 8], [8, 9], [9, 10], [3, 11], [11, 12], [12, 13], [13, 14],
-            [6, 15], [15, 16], [16, 17], [17, 18], [6, 19], [19, 20], [20, 21], [21, 22],
-            [13, 23], [23, 24],
+            [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7],
+            [4, 8], [8, 9], [9, 10], [10, 11], [4, 12], [12, 13], [13, 14], [14, 15],
+            [7, 16], [16, 17], [17, 18], [18, 19], [7, 20], [20, 21], [21, 22], [22, 23],
+            [14, 24], [24, 25],
         ],
     }]
     images = []
@@ -118,6 +115,11 @@ def _records_to_coco(records: list, project_name: str) -> dict:
                     keypoints[i * 3] = round(x, 1)
                     keypoints[i * 3 + 1] = round(y, 1)
                     keypoints[i * 3 + 2] = 2 if (kp.get("visibility") or 0) > 0 else 0
+        bbox = r.get("bbox") if isinstance(r.get("bbox"), list) else None
+        area = 0
+        if bbox and len(bbox) >= 4 and bbox[2] is not None and bbox[3] is not None:
+            area = bbox[2] * bbox[3]
+
         coco_annotations.append({
             "id": idx,
             "image_id": idx,
@@ -128,10 +130,9 @@ def _records_to_coco(records: list, project_name: str) -> dict:
             "annotator_name": r.get("annotator_name"),
             "selected_player_id": r.get("selected_player_id"),
             "selected_player_name": r.get("selected_player_name"),
-            "box_x": r.get("box_x"),
-            "box_y": r.get("box_y"),
-            "box_w": r.get("box_w"),
-            "box_h": r.get("box_h"),
+            "bbox": r.get("bbox"),
+            "area": area,
+            "iscrowd": 0,
             "action_type": r.get("action_type"),
             "action_phase": r.get("action_phase"),
             "quality_rating": r.get("quality_rating"),
@@ -149,8 +150,10 @@ def _records_to_csv(records: list) -> str:
     """将 records 转为 CSV 表格（含标注人）。"""
     out = io.StringIO()
     w = csv.writer(out)
-    w.writerow(["task_batch_id", "frame_index", "annotator_id", "annotator_name", "selected_player_id", "selected_player_name", "box_x", "box_y", "box_w", "box_h", "action_type", "action_phase", "quality_rating", "is_forced_action", "notes"])
+    w.writerow(["task_batch_id", "frame_index", "annotator_id", "annotator_name", "selected_player_id", "selected_player_name", "bbox", "action_type", "action_phase", "quality_rating", "is_forced_action", "notes"])
     for r in records:
+        bbox = r.get("bbox")
+        bbox_value = json.dumps(bbox, ensure_ascii=False) if isinstance(bbox, list) else ""
         w.writerow([
             r.get("task_batch_id"),
             r.get("frame_index"),
@@ -158,10 +161,7 @@ def _records_to_csv(records: list) -> str:
             r.get("annotator_name"),
             r.get("selected_player_id") or "",
             r.get("selected_player_name") or "",
-            r.get("box_x") if r.get("box_x") is not None else "",
-            r.get("box_y") if r.get("box_y") is not None else "",
-            r.get("box_w") if r.get("box_w") is not None else "",
-            r.get("box_h") if r.get("box_h") is not None else "",
+            bbox_value,
             r.get("action_type") or "",
             r.get("action_phase") or "",
             r.get("quality_rating") or "",
