@@ -130,6 +130,7 @@ def _records_to_coco(records: list, project_name: str) -> dict:
             "annotator_name": r.get("annotator_name"),
             "selected_player_id": r.get("selected_player_id"),
             "selected_player_name": r.get("selected_player_name"),
+            #  AI 辅助生成：GPT-5.3-Codex, 2026-03-27 
             "bbox": r.get("bbox"),
             "area": area,
             "iscrowd": 0,

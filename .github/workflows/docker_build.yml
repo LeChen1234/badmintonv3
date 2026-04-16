@@ -8,6 +8,7 @@ jobs:
   build_and_docker:
     runs-on: ubuntu-latest
     strategy:
+      #  AI 辅助生成：GPT-5.3-Codex, 2026-03-2
       matrix:
         include:
           - image_name: badminton_backend
