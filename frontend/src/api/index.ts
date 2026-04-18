@@ -11,13 +11,9 @@ export const authApi = {
     username: string
     password: string
     display_name: string
-    captcha_id: string
-    captcha_answer: string
   }) =>
     request.post('/auth/register', data),
   me: () => request.get('/auth/me'),
-  getCaptcha: () =>
-    request.get<{ captcha_id: string; image_base64: string; expires_in_seconds: number }>('/auth/captcha'),
   changePassword: (data: { old_password: string; new_password: string; confirm_password: string }) =>
     request.post('/auth/change-password', data),
 }

@@ -11,8 +11,6 @@ class UserRegister(BaseModel):
     username: str = Field(..., min_length=3, max_length=64)
     password: str = Field(..., min_length=6, max_length=128)
     display_name: str = Field(..., min_length=1, max_length=128)
-    captcha_id: str = Field(..., min_length=1, max_length=128)
-    captcha_answer: str = Field(..., min_length=4, max_length=8)
 
 
 class UserCreate(BaseModel):
@@ -55,12 +53,6 @@ class TokenData(BaseModel):
     user_id: int
     username: str
     role: UserRole
-
-
-class CaptchaOut(BaseModel):
-    captcha_id: str
-    image_base64: str
-    expires_in_seconds: int = 300
 
 
 class ChangePassword(BaseModel):
