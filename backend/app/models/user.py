@@ -9,6 +9,7 @@ from app.database import Base
 
 
 class UserRole(str, enum.Enum):
+    SUPER_ADMIN = "super_admin"
     ADMIN = "admin"
     EXPERT = "expert"
     LEADER = "leader"
@@ -25,6 +26,7 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     ls_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
+    is_super_admin: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

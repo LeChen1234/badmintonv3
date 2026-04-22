@@ -8,7 +8,7 @@ from app.models.project import Project
 from app.models.user import User, UserRole
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectOut
 from app.core.security import get_current_user
-from app.core.permissions import require_roles
+from app.core.permissions import require_roles, require_super_admin
 
 router = APIRouter(prefix="/projects", tags=["项目管理"])
 
@@ -82,7 +82,7 @@ def delete_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_roles([UserRole.ADMIN])(current_user)
+    require_super_admin(current_user)
 
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:

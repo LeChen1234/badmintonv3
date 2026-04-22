@@ -18,7 +18,7 @@
         </el-table-column>
         <el-table-column label="操作" width="110">
           <template #default="{ row }">
-            <el-popconfirm title="确认删除该项目？" @confirm="removeProject(row.id)">
+            <el-popconfirm v-if="canDeleteProjects" title="确认删除该项目？" @confirm="removeProject(row.id)">
               <template #reference>
                 <el-button type="danger" size="small">删除</el-button>
               </template>
@@ -46,13 +46,16 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { projectApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 
 const projects = ref<any[]>([])
 const loading = ref(false)
 const showDialog = ref(false)
+const authStore = useAuthStore()
+const canDeleteProjects = computed(() => authStore.user?.role === 'super_admin')
 const form = reactive({
   name: '',
   description: '',
@@ -93,6 +96,7 @@ async function createProject() {
 }
 
 async function removeProject(projectId: number) {
+  if (!canDeleteProjects.value) return
   try {
     await projectApi.delete(projectId)
     ElMessage.success('项目已删除')

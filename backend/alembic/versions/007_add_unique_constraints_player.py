@@ -1,7 +1,7 @@
 """add_unique_constraints_and_player_table
 
 Revision ID: 007_add_unique_constraints_player
-Revises: 006_add_uuid_columns
+Revises: 006
 Create Date: 2026-03-25 00:00:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "007_add_unique_constraints_player"
-down_revision = "006_add_uuid_columns"
+down_revision = "006"
 branch_labels = None
 depends_on = None
 

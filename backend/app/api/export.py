@@ -16,6 +16,7 @@ from app.models.annotation import FrameAnnotation, AnnotationStatus
 from app.models.task_batch import TaskBatch
 from app.schemas.export import ExportRequest, ExportOut
 from app.core.security import get_current_user
+from app.core.permissions import require_super_admin
 from app.utils.audit import log_audit
 
 router = APIRouter(prefix="/export", tags=["数据导出"])
@@ -179,6 +180,7 @@ def export_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_super_admin(current_user)
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "项目不存在")
@@ -230,6 +232,7 @@ def download_export(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_super_admin(current_user)
     filepath = os.path.join(settings.EXPORT_DIR, filename)
     if not os.path.exists(filepath):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "导出文件不存在")
@@ -244,5 +247,6 @@ def get_confirmed_count(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_super_admin(current_user)
     annotations, _ = _gather_confirmed_annotations(db, project_id)
     return {"project_id": project_id, "confirmed_count": len(annotations)}

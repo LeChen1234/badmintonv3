@@ -10,7 +10,7 @@
           <el-icon><DataAnalysis /></el-icon>
           <span>总览仪表盘</span>
         </el-menu-item>
-        <el-menu-item index="/users" v-if="isAdmin">
+        <el-menu-item index="/users" v-if="canManageUsers">
           <el-icon><User /></el-icon>
           <span>用户管理</span>
         </el-menu-item>
@@ -30,7 +30,7 @@
           <el-icon><Finished /></el-icon>
           <span>审核流程</span>
         </el-menu-item>
-        <el-menu-item index="/export">
+        <el-menu-item index="/export" v-if="isSuperAdmin">
           <el-icon><Download /></el-icon>
           <span>数据导出</span>
         </el-menu-item>
@@ -122,11 +122,12 @@ const passwordRules = {
 }
 
 const roleMap: Record<string, string> = {
-  admin: '管理员', expert: '专家', leader: '组长', student: '学生',
+  super_admin: '超级管理员', admin: '管理员', expert: '专家', leader: '组长', student: '学生',
 }
 const roleLabel = computed(() => roleMap[authStore.user?.role || ''] || '未知')
-const isAdmin = computed(() => authStore.user?.role === 'admin')
-const canManageProjects = computed(() => ['admin', 'expert'].includes(authStore.user?.role || ''))
+const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin')
+const canManageUsers = computed(() => authStore.user?.role === 'super_admin')
+const canManageProjects = computed(() => ['super_admin', 'admin', 'expert'].includes(authStore.user?.role || ''))
 
 function handleUserMenuCommand(command: string) {
   if (command === 'logout') {

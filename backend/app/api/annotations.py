@@ -17,7 +17,7 @@ from app.schemas.annotation import (
     ConfirmAnnotationsRequest,
 )
 from app.core.security import get_current_user
-from app.core.permissions import require_roles
+from app.core.permissions import require_roles, require_super_admin
 from app.services import task_service
 from app.utils.audit import log_audit
 
@@ -199,6 +199,7 @@ def delete_annotation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_super_admin(current_user)
     annotation = db.query(FrameAnnotation).filter(FrameAnnotation.id == annotation_id).first()
     if not annotation:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "标注不存在")

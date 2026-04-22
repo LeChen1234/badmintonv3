@@ -7,7 +7,7 @@ from app.database import get_db
 from app.models.user import User, UserRole
 from app.schemas.user import UserCreate, UserUpdate, UserOut
 from app.core.security import get_current_user, hash_password
-from app.core.permissions import require_roles
+from app.core.permissions import require_roles, require_super_admin
 
 router = APIRouter(prefix="/users", tags=["用户管理"])
 
@@ -33,6 +33,8 @@ def create_user(
     current_user: User = Depends(get_current_user),
 ):
     require_roles([UserRole.ADMIN])(current_user)
+    if data.role == UserRole.SUPER_ADMIN and current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "仅超级管理员可创建超级管理员账号")
 
     if db.query(User).filter(User.username == data.username).first():
         raise HTTPException(status.HTTP_409_CONFLICT, "用户名已存在")
@@ -42,6 +44,7 @@ def create_user(
         password_hash=hash_password(data.password),
         role=data.role,
         display_name=data.display_name,
+        is_super_admin=data.role == UserRole.SUPER_ADMIN,
     )
     db.add(user)
     db.commit()
@@ -75,11 +78,19 @@ def update_user(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "用户不存在")
 
     update_data = data.model_dump(exclude_unset=True)
+    update_data.pop("is_super_admin", None)
+    if update_data.get("role") == UserRole.SUPER_ADMIN and current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "仅超级管理员可设置超级管理员角色")
     if "password" in update_data:
         update_data["password_hash"] = hash_password(update_data.pop("password"))
 
     for key, value in update_data.items():
         setattr(user, key, value)
+
+    if user.role == UserRole.SUPER_ADMIN:
+        user.is_super_admin = True
+    elif "role" in update_data:
+        user.is_super_admin = False
 
     db.commit()
     db.refresh(user)
@@ -92,13 +103,15 @@ def delete_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_roles([UserRole.ADMIN])(current_user)
+    require_super_admin(current_user)
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "用户不存在")
     if user.id == current_user.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能删除自己")
+    if user.role == UserRole.SUPER_ADMIN:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能删除超级管理员账号")
 
     user.is_active = False
     db.commit()

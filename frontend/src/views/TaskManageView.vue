@@ -35,7 +35,7 @@
               ML 初标(可选)
             </el-button>
             <el-button size="small" type="success" @click="goAnnotate(row)">标注</el-button>
-            <el-button size="small" type="danger" @click="deleteBatch(row)">删除</el-button>
+            <el-button v-if="canDeleteBatches" size="small" type="danger" @click="deleteBatch(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -88,14 +88,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue'
+import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { taskApi, projectApi, userApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/api/request'
 
 const router = useRouter()
+const authStore = useAuthStore()
 const mlEnabled = ref(false)
+const canDeleteBatches = computed(() => authStore.user?.role === 'super_admin')
 
 const tasks = ref<any[]>([])
 const projects = ref<any[]>([])
@@ -183,6 +186,7 @@ async function triggerMl(batchId: number) {
 }
 
 async function deleteBatch(row: any) {
+  if (!canDeleteBatches.value) return
   try {
     await ElMessageBox.confirm(
       `确定删除任务批次「${row.name}」吗？该操作会同时删除该任务下上传的帧文件，且不可恢复。`,

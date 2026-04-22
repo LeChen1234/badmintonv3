@@ -4,7 +4,7 @@
       <template #header>
         <div class="card-header">
           <span>用户管理</span>
-          <el-button type="primary" @click="showCreateDialog = true">新建用户</el-button>
+          <el-button v-if="canManageUsers" type="primary" @click="showCreateDialog = true">新建用户</el-button>
         </div>
       </template>
       <el-table :data="users" stripe v-loading="loading">
@@ -23,8 +23,8 @@
         </el-table-column>
         <el-table-column label="操作" width="180">
           <template #default="{ row }">
-            <el-button size="small" @click="editUser(row)">编辑</el-button>
-            <el-popconfirm title="确定禁用此用户？" @confirm="deleteUser(row.id)">
+            <el-button v-if="canManageUsers" size="small" @click="editUser(row)">编辑</el-button>
+            <el-popconfirm v-if="canDeleteUsers" title="确定禁用此用户？" @confirm="deleteUser(row.id)">
               <template #reference>
                 <el-button size="small" type="danger">禁用</el-button>
               </template>
@@ -48,6 +48,7 @@
         <el-form-item label="角色">
           <el-select v-model="form.role">
             <el-option label="管理员" value="admin" />
+            <el-option label="超级管理员" value="super_admin" />
             <el-option label="标注专家" value="expert" />
             <el-option label="标注组长" value="leader" />
             <el-option label="学生标注员" value="student" />
@@ -63,8 +64,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { userApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 
 const users = ref<any[]>([])
@@ -72,10 +74,13 @@ const loading = ref(false)
 const showCreateDialog = ref(false)
 const editingUser = ref<any>(null)
 const form = reactive({ username: '', display_name: '', password: '', role: 'student' })
+const authStore = useAuthStore()
+const canManageUsers = computed(() => authStore.user?.role === 'super_admin')
+const canDeleteUsers = computed(() => authStore.user?.role === 'super_admin')
 
-const roleMap: Record<string, string> = { admin: '管理员', expert: '专家', leader: '组长', student: '学生' }
+const roleMap: Record<string, string> = { super_admin: '超级管理员', admin: '管理员', expert: '专家', leader: '组长', student: '学生' }
 const roleLabel = (r: string) => roleMap[r] || r
-const roleTagType = (r: string) => ({ admin: 'danger', expert: 'warning', leader: '', student: 'info' }[r] || '')
+const roleTagType = (r: string) => ({ super_admin: 'danger', admin: 'warning', expert: 'warning', leader: '', student: 'info' }[r] || '')
 
 async function loadUsers() {
   loading.value = true
@@ -94,6 +99,7 @@ function editUser(user: any) {
 }
 
 async function saveUser() {
+  if (!canManageUsers.value) return
   try {
     if (editingUser.value) {
       const data: any = { display_name: form.display_name, role: form.role }
@@ -111,6 +117,7 @@ async function saveUser() {
 }
 
 async function deleteUser(id: number) {
+  if (!canDeleteUsers.value) return
   try {
     await userApi.delete(id)
     ElMessage.success('已禁用')

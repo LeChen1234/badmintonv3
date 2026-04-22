@@ -1,4 +1,5 @@
 export enum UserRole {
+  SUPER_ADMIN = 'super_admin',
   ADMIN = 'admin',
   EXPERT = 'expert',
   LEADER = 'leader',
@@ -6,6 +7,7 @@ export enum UserRole {
 }
 
 export const UserRoleLabel: Record<UserRole, string> = {
+  [UserRole.SUPER_ADMIN]: '超级管理员',
   [UserRole.ADMIN]: '系统管理员',
   [UserRole.EXPERT]: '标注专家',
   [UserRole.LEADER]: '标注组长',
@@ -87,6 +89,7 @@ export interface User {
   display_name: string
   ls_user_id: number | null
   is_active: boolean
+  is_super_admin?: boolean
   created_at: string
 }
 

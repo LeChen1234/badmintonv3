@@ -11,6 +11,7 @@ from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.models import User
 from app.core.security import hash_password
+from app.services.backup_service import BackupScheduler, create_backup_snapshot
 
 from app.api import auth, users, projects, tasks, annotations, review, progress, export
 
@@ -25,11 +26,17 @@ async def lifespan(app: FastAPI):
     os.makedirs(settings.DATA_DIR, exist_ok=True)
     os.makedirs(settings.EXPORT_DIR, exist_ok=True)
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    os.makedirs(settings.BACKUP_DIR, exist_ok=True)
     _ensure_yolo_pose_model()
     Base.metadata.create_all(bind=engine)
-    _ensure_admin_user()
+    _ensure_super_admin_user()
     _recover_interrupted_media_processes()
-    yield
+    backup_scheduler = _setup_auto_backup()
+    try:
+        yield
+    finally:
+        if backup_scheduler:
+            backup_scheduler.stop()
 
 
 def _ensure_yolo_pose_model() -> None:
@@ -66,24 +73,61 @@ def _recover_interrupted_media_processes():
         db.close()
 
 
-def _ensure_admin_user():
+def _ensure_super_admin_user():
     from app.database import SessionLocal
     from app.models.user import UserRole
 
     db = SessionLocal()
     try:
-        admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
+        super_admin = db.query(User).filter(User.role == UserRole.SUPER_ADMIN).first()
+        if super_admin:
+            return
+
+        admin = db.query(User).filter(User.username == "admin").first()
+        if not admin:
+            admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
         if not admin:
             admin = User(
                 username="admin",
                 password_hash=hash_password("admin123"),
-                role=UserRole.ADMIN,
+                role=UserRole.SUPER_ADMIN,
                 display_name="系统管理员",
+                is_super_admin=True,
             )
             db.add(admin)
-            db.commit()
+            logger.warning("No admin found, created default super admin account: admin/admin123")
+        else:
+            admin.role = UserRole.SUPER_ADMIN
+            admin.is_super_admin = True
+            logger.warning("No super admin found, promoted user '%s' to super admin", admin.username)
+        db.commit()
     finally:
         db.close()
+
+
+def _setup_auto_backup() -> BackupScheduler | None:
+    if not settings.ENABLE_AUTO_BACKUP:
+        logger.info("Automatic backup is disabled")
+        return None
+
+    try:
+        initial_backup = create_backup_snapshot(
+            sqlite_db_path=settings.SQLITE_DB_PATH,
+            backup_dir=settings.BACKUP_DIR,
+            keep_count=settings.BACKUP_KEEP_COUNT,
+        )
+        logger.info("Initial backup created: %s", initial_backup)
+    except Exception as exc:
+        logger.exception("Initial backup failed: %s", exc)
+
+    scheduler = BackupScheduler(
+        sqlite_db_path=settings.SQLITE_DB_PATH,
+        backup_dir=settings.BACKUP_DIR,
+        interval_minutes=settings.BACKUP_INTERVAL_MINUTES,
+        keep_count=settings.BACKUP_KEEP_COUNT,
+    )
+    scheduler.start()
+    return scheduler
 
 
 app = FastAPI(

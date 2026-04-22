@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.core.permissions import require_roles
+from app.core.permissions import require_roles, require_super_admin
 from app.core.security import get_current_user
 from app.database import get_db
 from app.models.batch_frame import BatchFrame
@@ -352,7 +352,7 @@ def delete_batch(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_roles([UserRole.ADMIN])(current_user)
+    require_super_admin(current_user)
     batch = task_service.get_task_batch(db, batch_id)
     if not batch:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")

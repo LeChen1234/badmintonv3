@@ -20,7 +20,7 @@
           <template #title>总览仪表盘</template>
         </el-menu-item>
 
-        <el-menu-item v-if="auth.hasRole(UserRole.ADMIN)" index="/users">
+        <el-menu-item v-if="auth.hasRole(UserRole.SUPER_ADMIN)" index="/users">
           <el-icon><User /></el-icon>
           <template #title>用户管理</template>
         </el-menu-item>
@@ -44,7 +44,7 @@
         </el-menu-item>
 
         <el-menu-item
-          v-if="auth.hasRole(UserRole.ADMIN, UserRole.EXPERT)"
+          v-if="auth.hasRole(UserRole.SUPER_ADMIN)"
           index="/export"
         >
           <el-icon><Download /></el-icon>

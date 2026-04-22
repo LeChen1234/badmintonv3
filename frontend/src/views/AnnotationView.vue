@@ -595,7 +595,7 @@ const qualityLabel = (v: string) =>
 
 const canConfirm = computed(() => {
   const role = authStore.user?.role
-  return role === 'admin' || role === 'expert' || role === 'leader'
+  return role === 'super_admin' || role === 'admin' || role === 'expert' || role === 'leader'
 })
 
 const statusLabels: Record<string, string> = { draft: '草稿', submitted: '已提交', confirmed: '已确认', rejected: '已退回' }

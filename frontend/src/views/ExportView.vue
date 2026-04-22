@@ -2,6 +2,13 @@
   <div>
     <el-card>
       <template #header><span>数据导出 - 已确认标注数据集</span></template>
+      <el-alert
+        v-if="!canExport"
+        type="warning"
+        :closable="false"
+        title="仅超级管理员可使用导出功能"
+        style="margin-bottom: 16px;"
+      />
       <el-form label-width="120px" style="max-width: 600px;">
         <el-form-item label="选择项目">
           <el-select v-model="selectedProject" placeholder="请选择项目" style="width: 100%;" @change="loadConfirmedCount">
@@ -41,8 +48,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { projectApi, exportApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 
 const projects = ref<any[]>([])
@@ -52,6 +60,8 @@ const confirmedCount = ref(0)
 const exporting = ref(false)
 const downloading = ref(false)
 const exportResult = ref<any>(null)
+const authStore = useAuthStore()
+const canExport = computed(() => authStore.user?.role === 'super_admin')
 
 async function loadProjects() {
   const res = await projectApi.list()
@@ -59,6 +69,7 @@ async function loadProjects() {
 }
 
 async function loadConfirmedCount() {
+  if (!canExport.value) { confirmedCount.value = 0; return }
   if (!selectedProject.value) { confirmedCount.value = 0; return }
   try {
     const res = await exportApi.confirmedCount(selectedProject.value)
@@ -67,6 +78,7 @@ async function loadConfirmedCount() {
 }
 
 async function doExport() {
+  if (!canExport.value) { ElMessage.warning('仅超级管理员可导出数据'); return }
   if (!selectedProject.value) { ElMessage.warning('请选择项目'); return }
   exporting.value = true
   try {
@@ -78,6 +90,7 @@ async function doExport() {
 }
 
 async function doDownload() {
+  if (!canExport.value) { ElMessage.warning('仅超级管理员可下载导出文件'); return }
   if (!exportResult.value?.filename || !selectedProject.value) return
   downloading.value = true
   try {
@@ -94,5 +107,10 @@ async function doDownload() {
   finally { downloading.value = false }
 }
 
-onMounted(loadProjects)
+onMounted(async () => {
+  await loadProjects()
+  if (canExport.value && selectedProject.value) {
+    await loadConfirmedCount()
+  }
+})
 </script>

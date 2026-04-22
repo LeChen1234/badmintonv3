@@ -18,6 +18,7 @@ class UserCreate(BaseModel):
     password: str = Field(..., min_length=6, max_length=128)
     role: UserRole = UserRole.STUDENT
     display_name: str = Field(..., min_length=1, max_length=128)
+    is_super_admin: bool = False
 
 
 class UserUpdate(BaseModel):
@@ -25,6 +26,7 @@ class UserUpdate(BaseModel):
     role: Optional[UserRole] = None
     is_active: Optional[bool] = None
     password: Optional[str] = None
+    is_super_admin: Optional[bool] = None
 
 
 class UserOut(BaseModel):
@@ -34,6 +36,7 @@ class UserOut(BaseModel):
     display_name: str
     ls_user_id: Optional[int] = None
     is_active: bool
+    is_super_admin: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}

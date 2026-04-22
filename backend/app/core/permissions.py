@@ -9,6 +9,8 @@ from app.models.user import User, UserRole
 def require_roles(allowed_roles: List[UserRole]):
     """Dependency factory that checks if the current user has one of the allowed roles."""
     def checker(current_user: User) -> User:
+        if is_super_admin(current_user):
+            return current_user
         if current_user.role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -20,6 +22,19 @@ def require_roles(allowed_roles: List[UserRole]):
 
 def is_admin(user: User) -> bool:
     return user.role == UserRole.ADMIN
+
+
+def is_super_admin(user: User) -> bool:
+    return user.role == UserRole.SUPER_ADMIN
+
+
+def require_super_admin(user: User) -> User:
+    if not is_super_admin(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="仅超级管理员可执行该操作",
+        )
+    return user
 
 
 def is_expert(user: User) -> bool:

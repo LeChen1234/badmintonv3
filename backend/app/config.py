@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     DATA_DIR: str = str(PROJECT_ROOT / "data")
     EXPORT_DIR: str = str(PROJECT_ROOT / "data" / "exports")
     UPLOAD_DIR: str = str(PROJECT_ROOT / "data" / "uploads")
+    BACKUP_DIR: str = str(PROJECT_ROOT / "data" / "backups")
+    ENABLE_AUTO_BACKUP: bool = True
+    BACKUP_INTERVAL_MINUTES: int = 60
+    BACKUP_KEEP_COUNT: int = 24
 
     ALLOW_PUBLIC_REGISTER: bool = True
 
