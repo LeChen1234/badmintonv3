@@ -3,9 +3,11 @@ import io
 import json
 import os
 from datetime import datetime
+from typing import Dict, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
+from PIL import Image
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -14,6 +16,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.models.annotation import FrameAnnotation, AnnotationStatus
 from app.models.task_batch import TaskBatch
+from app.models.batch_frame import BatchFrame
 from app.schemas.export import ExportRequest, ExportOut
 from app.core.security import get_current_user
 from app.core.permissions import require_super_admin
@@ -41,6 +44,49 @@ def _gather_confirmed_annotations(db: Session, project_id: int):
 
     batch_map = {b.id: b for b in batches}
     return annotations, batch_map
+
+
+def _build_frame_path_map(db: Session, batch_ids: list[int]) -> Dict[Tuple[int, int], str]:
+    """构建 (task_batch_id, frame_index) 到相对文件路径的映射。"""
+    if not batch_ids:
+        return {}
+
+    rows = (
+        db.query(BatchFrame)
+        .filter(BatchFrame.task_batch_id.in_(batch_ids))
+        .all()
+    )
+    return {(row.task_batch_id, row.frame_index): row.file_path for row in rows}
+
+
+def _load_image_size(rel_path: str, size_cache: Dict[str, Tuple[int, int]]) -> Tuple[int, int]:
+    """从相对路径读取真实图片尺寸，失败时回退到默认值。"""
+    default_size = (640, 480)
+    if not rel_path:
+        return default_size
+
+    if rel_path in size_cache:
+        return size_cache[rel_path]
+
+    abs_path = rel_path
+    if not os.path.isabs(abs_path):
+        abs_path = os.path.join(settings.UPLOAD_DIR, rel_path)
+
+    if not os.path.exists(abs_path):
+        size_cache[rel_path] = default_size
+        return default_size
+
+    try:
+        with Image.open(abs_path) as img:
+            width, height = img.size
+            if width > 0 and height > 0:
+                size_cache[rel_path] = (int(width), int(height))
+            else:
+                size_cache[rel_path] = default_size
+    except Exception:
+        size_cache[rel_path] = default_size
+
+    return size_cache[rel_path]
 
 
 def _to_export_json(annotations, batch_map):
@@ -72,7 +118,7 @@ def _to_export_json(annotations, batch_map):
     return records
 
 
-def _records_to_coco(records: list, project_name: str) -> dict:
+def _records_to_coco(records: list, project_name: str, frame_path_map: Dict[Tuple[int, int], str] | None = None) -> dict:
     """将 records（_to_export_json 格式）转为 COCO 风格。"""
     kp_names = [
         "head_top", "head_center", "chin", "neck", "chest_center", "spine_mid", "pelvis_center",
@@ -96,15 +142,22 @@ def _records_to_coco(records: list, project_name: str) -> dict:
     }]
     images = []
     coco_annotations = []
+    size_cache: Dict[str, Tuple[int, int]] = {}
+    frame_path_map = frame_path_map or {}
     for idx, r in enumerate(records, start=1):
+        rel_path = frame_path_map.get((r["task_batch_id"], r["frame_index"]), "")
+        img_w, img_h = _load_image_size(rel_path, size_cache)
         images.append({
             "id": idx,
-            "file_name": f"batch_{r['task_batch_id']}_frame_{r['frame_index']}.jpg",
-            "width": 640,
-            "height": 480,
+            "file_name": rel_path or f"batch_{r['task_batch_id']}_frame_{r['frame_index']}.jpg",
+            "width": img_w,
+            "height": img_h,
+            "license": 0,
+            "flickr_url": "",
+            "coco_url": "",
+            "date_captured": "",
         })
         keypoints = [0.0] * (25 * 3)
-        img_w, img_h = 640, 480
         if isinstance(r.get("keypoints"), list):
             for kp in r["keypoints"]:
                 name = kp.get("name") if isinstance(kp, dict) else None
@@ -125,6 +178,7 @@ def _records_to_coco(records: list, project_name: str) -> dict:
             "id": idx,
             "image_id": idx,
             "category_id": 1,
+            "segmentation": [],
             "keypoints": keypoints,
             "num_keypoints": sum(1 for i in range(25) if keypoints[i * 3 + 2] > 0),
             "annotator_id": r.get("annotator_id"),
@@ -141,10 +195,18 @@ def _records_to_coco(records: list, project_name: str) -> dict:
             "is_forced_action": bool(r.get("is_forced_action")),
         })
     return {
-        "info": {"description": project_name},
+        "info": {
+            "year": datetime.now().year,
+            "version": "1.0",
+            "description": project_name,
+            "contributor": "",
+            "url": "",
+            "date_created": datetime.now().isoformat(),
+        },
         "images": images,
         "annotations": coco_annotations,
         "categories": categories,
+        "licenses": [],
     }
 
 
@@ -187,6 +249,7 @@ def export_project(
 
     annotations, batch_map = _gather_confirmed_annotations(db, project_id)
     records = _to_export_json(annotations, batch_map)
+    frame_path_map = _build_frame_path_map(db, list(batch_map.keys()))
 
     fmt = (req.format or "json").lower()
     if fmt not in ("json", "coco", "csv"):
@@ -208,7 +271,7 @@ def export_project(
                 "annotations": records,
             }, f, ensure_ascii=False, indent=2)
     elif fmt == "coco":
-        coco = _records_to_coco(records, project.name)
+        coco = _records_to_coco(records, project.name, frame_path_map)
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(coco, f, ensure_ascii=False, indent=2)
     else:
