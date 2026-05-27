@@ -4,7 +4,7 @@
 1. 安装 Node.js（LTS），并勾选 `Add to PATH`
 
 2. 在项目根目录执行：
-   - 双击 `run_frontend.bat`
+   - 双击 `scripts\run_frontend.bat`
    - 或命令行：
      - `cd frontend`
      - `npm install`

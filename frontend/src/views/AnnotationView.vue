@@ -565,6 +565,8 @@ const frameWrapRef = ref<HTMLDivElement | null>(null)
 const MIN_FRAME_ZOOM = 0.5
 const MAX_FRAME_ZOOM = 4
 const FRAME_ZOOM_STEP = 0.1
+const KEYPOINT_RADIUS = 1.5
+const SELECTED_KEYPOINT_RADIUS = 2.2
 const frameZoom = ref(1)
 const framePanX = ref(0)
 const framePanY = ref(0)
@@ -1302,9 +1304,9 @@ function drawKeypointsCanvas() {
       const color = KEYPOINT_COLORS[i] || '#409eff'
       ctx.fillStyle = color
       ctx.strokeStyle = i === selectedKeypointIndex.value ? '#ff0' : '#fff'
-      ctx.lineWidth = i === selectedKeypointIndex.value ? 2 : 1
+      ctx.lineWidth = i === selectedKeypointIndex.value ? 1 : 0.75
       ctx.beginPath()
-      ctx.arc(x, y, 6, 0, Math.PI * 2)
+      ctx.arc(x, y, i === selectedKeypointIndex.value ? SELECTED_KEYPOINT_RADIUS : KEYPOINT_RADIUS, 0, Math.PI * 2)
       ctx.fill()
       ctx.stroke()
     }
@@ -1341,7 +1343,7 @@ function onCanvasClick(e: MouseEvent) {
 }
 
 /** 命中半径（百分比），便于在图上点选/拖拽节点 */
-const HIT_RADIUS_PCT = 6
+const HIT_RADIUS_PCT = 1.5
 
 function hitTestKeypoint(canvas: HTMLCanvasElement, clientX: number, clientY: number): number {
   const rect = canvas.getBoundingClientRect()

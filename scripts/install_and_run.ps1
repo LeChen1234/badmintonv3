@@ -7,6 +7,8 @@ $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 $VenvPath = Join-Path $ProjectRoot ".venv"
 $BackendPath = Join-Path $ProjectRoot "backend"
 $FrontendPath = Join-Path $ProjectRoot "frontend"
+$ModelSource = Join-Path $ProjectRoot "models\yolov8n-pose.pt"
+$ModelTarget = Join-Path $ProjectRoot "data\models\yolov8n-pose.pt"
 
 # Keep npm cache on local disk
 $NpmCache = "D:\npm-cache"
@@ -47,6 +49,11 @@ if (-not (Test-Path (Join-Path $ProjectRoot ".env"))) {
     $content = $content -replace 'POSTGRES_HOST=postgres', 'POSTGRES_HOST=localhost' -replace 'REDIS_HOST=redis', 'REDIS_HOST=localhost' -replace 'LABEL_STUDIO_HOST=http://label-studio:8080', 'LABEL_STUDIO_HOST=http://localhost:8080' -replace 'ML_BACKEND_HOST=http://ml-backend:9090', 'ML_BACKEND_HOST=http://localhost:9090' -replace 'MINIO_ENDPOINT=minio:9000', 'MINIO_ENDPOINT=localhost:9000'
     Set-Content -Path $envPath -Value $content.TrimEnd()
     Write-Host "`n已生成 .env（已设为 localhost 便于本机连接）。请编辑 .env 设置 LABEL_STUDIO_API_KEY（Label Studio 启动后在设置中创建）。" -ForegroundColor Yellow
+}
+
+New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot "data"), (Join-Path $ProjectRoot "data\uploads"), (Join-Path $ProjectRoot "data\exports"), (Join-Path $ProjectRoot "data\models") | Out-Null
+if ((-not (Test-Path $ModelTarget)) -and (Test-Path $ModelSource)) {
+    Copy-Item -Path $ModelSource -Destination $ModelTarget -Force
 }
 
 # ---------- 4. Database migration ----------
