@@ -2,12 +2,15 @@
 setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 
-set "ROOT=%~dp0"
-if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+for %%I in ("%SCRIPT_DIR%\..") do set "ROOT=%%~fI"
 set "BACKEND=%ROOT%\backend"
 set "FRONTEND=%ROOT%\frontend"
 set "VENV=%ROOT%\.venv"
 set "PY=%VENV%\Scripts\python.exe"
+set "MODEL_SOURCE=%ROOT%\models\yolov8n-pose.pt"
+set "MODEL_TARGET=%ROOT%\data\models\yolov8n-pose.pt"
 
 echo ========================================
 echo   Project root: %ROOT%
@@ -49,14 +52,9 @@ if not exist "%PY%" (
     echo [1/4] Using existing virtual environment.
 )
 
-for /f %%v in ('%PY% -c "import sys; print(sys.version_info[0]*100+sys.version_info[1])"') do set "PYVER=%%v"
-if not defined PYVER (
-    echo [ERROR] Failed to detect Python version in .venv.
-    pause
-    exit /b 1
-)
-if %PYVER% LSS 309 (
-    echo [ERROR] .venv Python is older than 3.9. Recreate .venv and retry.
+"%PY%" -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)"
+if errorlevel 1 (
+    echo [ERROR] .venv Python is older than 3.9 or failed to run. Recreate .venv and retry.
     pause
     exit /b 1
 )
@@ -87,22 +85,34 @@ popd
 if not exist "%ROOT%\data" mkdir "%ROOT%\data"
 if not exist "%ROOT%\data\uploads" mkdir "%ROOT%\data\uploads"
 if not exist "%ROOT%\data\exports" mkdir "%ROOT%\data\exports"
+if not exist "%ROOT%\data\models" mkdir "%ROOT%\data\models"
+if not exist "%MODEL_TARGET%" (
+    if exist "%MODEL_SOURCE%" (
+        echo Copying local YOLO pose model into data\models...
+        copy /Y "%MODEL_SOURCE%" "%MODEL_TARGET%" >nul
+        if errorlevel 1 (
+            echo [ERROR] Failed to copy YOLO pose model.
+            pause
+            exit /b 1
+        )
+    )
+)
 
-if not exist "%ROOT%\run_backend.bat" (
+if not exist "%SCRIPT_DIR%\run_backend.bat" (
     echo [ERROR] run_backend.bat not found.
     pause
     exit /b 1
 )
-if not exist "%ROOT%\run_frontend.bat" (
+if not exist "%SCRIPT_DIR%\run_frontend.bat" (
     echo [ERROR] run_frontend.bat not found.
     pause
     exit /b 1
 )
 
 echo [4/4] Starting backend and frontend...
-start "backend-8000" /D "%ROOT%" run_backend.bat
+start "backend-8000" /D "%SCRIPT_DIR%" "%SCRIPT_DIR%\run_backend.bat"
 timeout /t 3 /nobreak >nul
-start "frontend-3000" /D "%ROOT%" run_frontend.bat
+start "frontend-3000" /D "%SCRIPT_DIR%" "%SCRIPT_DIR%\run_frontend.bat"
 
 echo.
 echo Frontend: http://localhost:3000

@@ -2,8 +2,9 @@
 setlocal EnableExtensions
 chcp 65001 >nul
 
-set "ROOT=%~dp0"
-if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+for %%I in ("%SCRIPT_DIR%\..") do set "ROOT=%%~fI"
 set "FRONTEND=%ROOT%\frontend"
 
 if not exist "%FRONTEND%\package.json" (
