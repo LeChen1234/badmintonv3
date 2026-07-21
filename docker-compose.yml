@@ -6,15 +6,19 @@ services:
     container_name: badminton-backend
     restart: unless-stopped
     environment:
-      BACKEND_SECRET_KEY: ${BACKEND_SECRET_KEY:-change-me-in-production}
+      ENVIRONMENT: production
+      BACKEND_SECRET_KEY: ${BACKEND_SECRET_KEY:?BACKEND_SECRET_KEY is required}
       BACKEND_CORS_ORIGINS: '${BACKEND_CORS_ORIGINS:-["http://localhost:3000"]}'
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?BOOTSTRAP_ADMIN_PASSWORD is required}
+      ALLOW_PUBLIC_REGISTER: ${ALLOW_PUBLIC_REGISTER:-false}
       ENABLE_ML_BACKEND: ${ENABLE_ML_BACKEND:-false}
     volumes:
       - backend_data:/app/data
     ports:
       - "8000:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
+      test: ["CMD", "python", "-c", "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=5)); assert d['status']=='ready'"]
       interval: 15s
       timeout: 5s
       retries: 5

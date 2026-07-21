@@ -77,6 +77,52 @@
         <Choice value="acceptable" alias="可接受" />
         <Choice value="needs_correction" alias="需纠正" />
       </Choices>
+
+      <Header value="击球接触（Contact-Centric，稀疏富标注）" size="4" />
+      <Choices name="is_contact_event" toName="image" choice="single" showInline="true">
+        <Choice value="yes" alias="本帧是击球接触" />
+        <Choice value="no" alias="非接触帧" />
+      </Choices>
+      <Choices name="contact_zone" toName="image" choice="single" showInline="true">
+        <Choice value="sweet" alias="甜区" />
+        <Choice value="top" alias="拍头远端" />
+        <Choice value="bottom" alias="近柄侧" />
+        <Choice value="head_side" alias="拍面侧缘" />
+        <Choice value="throat" alias="拍颈附近" />
+        <Choice value="unknown" alias="未知" />
+      </Choices>
+      <Choices name="face_attitude" toName="image" choice="single" showInline="true">
+        <Choice value="open" alias="开放拍面" />
+        <Choice value="square" alias="正面/中性" />
+        <Choice value="closed" alias="关闭拍面" />
+        <Choice value="unknown" alias="未知" />
+      </Choices>
+      <Choices name="support_foot" toName="image" choice="single" showInline="true">
+        <Choice value="left" alias="左脚支撑" />
+        <Choice value="right" alias="右脚支撑" />
+        <Choice value="both" alias="双脚" />
+        <Choice value="unknown" alias="未知" />
+      </Choices>
+      <Choices name="error_attributes" toName="image" choice="multiple" showInline="true">
+        <Choice value="off_center_contact" alias="击球点偏离甜区" />
+        <Choice value="open_face" alias="拍面过于开放" />
+        <Choice value="closed_face" alias="拍面过于关闭" />
+        <Choice value="late_timing" alias="击球偏晚" />
+        <Choice value="early_timing" alias="击球偏早" />
+        <Choice value="unstable_base" alias="支撑不稳" />
+        <Choice value="poor_grip" alias="握拍问题" />
+        <Choice value="other" alias="其他" />
+      </Choices>
+
+      <Header value="接触几何（仅接触帧：拍面四角 / 击球点 / 球）" size="4" />
+      <KeyPointLabels name="contact_geometry" toName="image" smart="true" strokeWidth="2" fillColor="rgba(255,87,34,0.35)">
+        <Label value="face_top" background="#FF5722" />
+        <Label value="face_bottom" background="#FF7043" />
+        <Label value="face_left" background="#FF8A65" />
+        <Label value="face_right" background="#FFAB91" />
+        <Label value="contact_point" background="#E91E63" />
+        <Label value="shuttle" background="#FFEB3B" />
+      </KeyPointLabels>
     </View>
   </View>
 

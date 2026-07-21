@@ -2,11 +2,12 @@ import argparse
 import csv
 import json
 import math
+from itertools import permutations
 from pathlib import Path
 from statistics import mean, median
 
 
-def centroid_of_person(person: dict) -> tuple[float, float] | None:
+def geometry_of_person(person: dict) -> tuple[float, float, float] | None:
     skeleton = person.get("skeleton", {})
     if not skeleton:
         return None
@@ -20,17 +21,52 @@ def centroid_of_person(person: dict) -> tuple[float, float] | None:
             ys.append(float(y))
     if not xs:
         return None
-    return sum(xs) / len(xs), sum(ys) / len(ys)
+    scale = math.hypot(max(xs) - min(xs), max(ys) - min(ys))
+    if scale <= 1e-9:
+        return None
+    return sum(xs) / len(xs), sum(ys) / len(ys), scale
 
 
-def sort_people_left_to_right(people: list[dict]) -> list[dict]:
-    def key_fn(person: dict) -> float:
-        center = centroid_of_person(person)
-        if center is None:
+def match_people(previous: list[dict], current: list[dict]) -> list[tuple[dict, dict]]:
+    """Minimum-cost one-to-one matching based on scale-normalized centroids."""
+    if not previous or not current:
+        return []
+    if len(previous) <= len(current):
+        left, right, swapped = previous, current, False
+    else:
+        left, right, swapped = current, previous, True
+
+    def cost(a: dict, b: dict) -> float:
+        ga, gb = geometry_of_person(a), geometry_of_person(b)
+        if ga is None or gb is None:
             return float("inf")
-        return center[0]
+        return math.hypot(ga[0] - gb[0], ga[1] - gb[1]) / ((ga[2] + gb[2]) / 2)
 
-    return sorted(people, key=key_fn)
+    if len(right) > 6:
+        candidates = sorted(
+            (cost(a, b), i, j)
+            for i, a in enumerate(left)
+            for j, b in enumerate(right)
+        )
+        used_left, used_right, pairs = set(), set(), []
+        for candidate_cost, i, j in candidates:
+            if not math.isfinite(candidate_cost):
+                continue
+            if i not in used_left and j not in used_right:
+                pairs.append((left[i], right[j]))
+                used_left.add(i)
+                used_right.add(j)
+        return [(b, a) for a, b in pairs] if swapped else pairs
+
+    best = None
+    for candidate in permutations(range(len(right)), len(left)):
+        candidate_cost = sum(cost(left[i], right[j]) for i, j in enumerate(candidate))
+        if math.isfinite(candidate_cost) and (best is None or candidate_cost < best[0]):
+            best = candidate_cost, candidate
+    if best is None:
+        return []
+    pairs = [(left[i], right[j]) for i, j in enumerate(best[1])]
+    return [(b, a) for a, b in pairs] if swapped else pairs
 
 
 def distance_sum_between_people(prev_person: dict, curr_person: dict) -> tuple[float, int]:
@@ -39,6 +75,11 @@ def distance_sum_between_people(prev_person: dict, curr_person: dict) -> tuple[f
     if not prev_skeleton or not curr_skeleton:
         return 0.0, 0
 
+    prev_geometry = geometry_of_person(prev_person)
+    curr_geometry = geometry_of_person(curr_person)
+    if prev_geometry is None or curr_geometry is None:
+        return 0.0, 0
+    scale = (prev_geometry[2] + curr_geometry[2]) / 2
     shared_keys = set(prev_skeleton.keys()) & set(curr_skeleton.keys())
     total = 0.0
     used = 0
@@ -49,7 +90,7 @@ def distance_sum_between_people(prev_person: dict, curr_person: dict) -> tuple[f
         x1, y1 = p1.get("x"), p1.get("y")
         if not all(isinstance(v, (int, float)) for v in (x0, y0, x1, y1)):
             continue
-        total += math.hypot(float(x1) - float(x0), float(y1) - float(y0))
+        total += math.hypot(float(x1) - float(x0), float(y1) - float(y0)) / scale
         used += 1
     return total, used
 
@@ -88,27 +129,26 @@ def analyze_motion(
         people = frame.get("people", [])
 
         if not isinstance(people, list) or len(people) < min_people:
+            # Avoid mixing different temporal gaps into one score distribution.
+            prev_valid_frame = None
             continue
-
-        people_sorted = sort_people_left_to_right(people)
 
         if prev_valid_frame is None:
             prev_valid_frame = {
                 "frame_index": frame_index,
                 "timestamp_sec": timestamp_sec,
-                "people": people_sorted,
+                "people": people,
             }
             continue
 
         prev_people = prev_valid_frame["people"]
-        curr_people = people_sorted
-        pair_count = min(len(prev_people), len(curr_people))
+        curr_people = people
 
         motion_score = 0.0
         shared_joint_count = 0
 
-        for i in range(pair_count):
-            d, used = distance_sum_between_people(prev_people[i], curr_people[i])
+        for prev_person, curr_person in match_people(prev_people, curr_people):
+            d, used = distance_sum_between_people(prev_person, curr_person)
             motion_score += d
             shared_joint_count += used
 
@@ -118,7 +158,7 @@ def analyze_motion(
                     "frame_index": frame_index,
                     "timestamp_sec": timestamp_sec,
                     "prev_frame_index": prev_valid_frame["frame_index"],
-                    "motion_score": round(motion_score, 6),
+                    "motion_score": round(motion_score / shared_joint_count, 6),
                     "shared_joint_count": shared_joint_count,
                     "people_count": len(people),
                 }
@@ -127,7 +167,7 @@ def analyze_motion(
         prev_valid_frame = {
             "frame_index": frame_index,
             "timestamp_sec": timestamp_sec,
-            "people": people_sorted,
+            "people": people,
         }
 
     return results
@@ -165,7 +205,7 @@ def save_plot(rows: list[dict], plot_path: Path) -> bool:
     ax.plot(x, y, linewidth=1.2)
     ax.set_title("Frame-to-frame motion score on valid frames")
     ax.set_xlabel("Frame index")
-    ax.set_ylabel("Motion score (sum of Euclidean distances)")
+    ax.set_ylabel("Motion score (mean body-scale-normalized joint displacement)")
     ax.grid(True, linestyle="--", alpha=0.35)
 
     p70 = percentile(y, 70)

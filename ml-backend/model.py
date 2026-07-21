@@ -39,8 +39,8 @@ class BadmintonMLBackend(LabelStudioMLBackend):
 
             predictions.append({
                 "result": result,
-                "score": round(0.5 + 0.3 * __import__("random").random(), 2),
-                "model_version": "mock-v1.0",
+                "score": 0.0,
+                "model_version": "deterministic-fallback-v2",
             })
         return predictions
 

@@ -55,7 +55,8 @@ export const taskApi = {
     data: {
       match_date?: string;
       match_name?: string;
-      players?: Array<{ id?: number; uuid?: string; name?: string; gender?: 'male' | 'female'; age?: number; height_cm?: number }>;
+      match_format?: 'singles' | 'doubles';
+      players?: Array<{ id?: number; uuid?: string; name?: string; subject_code?: string; gender?: 'male' | 'female'; age?: number; height_cm?: number }>;
     },
   ) =>
     request.put(`/tasks/${batchId}/metadata`, data),
@@ -63,11 +64,33 @@ export const taskApi = {
   getFrames: (batchId: number) => request.get(`/tasks/${batchId}/frames`),
   getFrameImageUrl: (batchId: number, frameIndex: number) =>
     `/tasks/${batchId}/frame/${frameIndex}/image`,
-  /** 算法辅助：当前帧多人姿态估计，返回 persons 数组，每人一组 25 关键点 */
-  predictKeypoints: (batchId: number, frameIndex: number) =>
+  getFrameImageBlob: (batchId: number, frameIndex: number) =>
+    request.get(`/tasks/${batchId}/frame/${frameIndex}/image`, { responseType: 'blob' }),
+  /** 多人姿态预标注及质量评估结果。 */
+  predictKeypoints: (batchId: number, frameIndex: number, box: { x: number; y: number; w: number; h: number }) =>
     request.get<{
-      persons: { keypoints: { name: string; x: number; y: number; visibility: number }[] }[];
-    }>(`/tasks/${batchId}/frame/${frameIndex}/predict-keypoints`, { timeout: 60000 }),
+        persons: {
+          keypoints: { name: string; x: number; y: number; visibility: number }[]
+          bbox: [number, number, number, number]
+          detection_confidence: number
+          visible_keypoints: number
+          source: 'yolo-full' | 'yolo-tile' | string
+          assist?: {
+          confidence: number
+          uncertainty: number
+          review_priority: number
+          suggested_phase: string | null
+          suggested_quality: string | null
+          phase_probabilities: Record<string, number>
+          features: Record<string, number | string>
+          reasons: string[]
+        }
+      }[]
+      algorithm_version: string
+    }>(`/tasks/${batchId}/frame/${frameIndex}/predict-keypoints`, {
+      params: { box_x: box.x, box_y: box.y, box_w: box.w, box_h: box.h },
+      timeout: 60000,
+    }),
 }
 
 export const annotationApi = {
@@ -83,14 +106,23 @@ export const annotationApi = {
 }
 
 export const reviewApi = {
+  expertQueue: (taskBatchId?: number) => request.get('/review/expert-queue', { params: { task_batch_id: taskBatchId } }),
   submit: (taskId: number, data?: any) => request.post(`/review/${taskId}/submit`, data || {}),
   approve: (taskId: number, data: any) => request.post(`/review/${taskId}/approve`, data),
   reject: (taskId: number, data: any) => request.post(`/review/${taskId}/reject`, data),
   history: (taskId: number) => request.get(`/review/${taskId}/history`),
+  agreement: (taskId: number) => request.get(`/review/${taskId}/agreement`),
+  disagreements: (taskId: number) => request.get(`/review/${taskId}/disagreements`),
+  adjudicate: (taskId: number, data: any) => request.post(`/review/${taskId}/adjudicate`, data),
 }
 
 export const progressApi = {
   overview: () => request.get('/progress/overview'),
+}
+
+export const researchApi = {
+  rounds: (projectId: number) => request.get(`/research/${projectId}/rounds`),
+  createRound: (projectId: number, data: any) => request.post(`/research/${projectId}/rounds`, data),
 }
 
 export const exportApi = {

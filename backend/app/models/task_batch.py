@@ -3,7 +3,7 @@ from datetime import datetime, date
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import String, Integer, DateTime, Date, ForeignKey, Enum, Boolean, func
+from sqlalchemy import String, Integer, DateTime, Date, ForeignKey, Enum, Boolean, JSON, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -35,6 +35,7 @@ class TaskBatch(Base):
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     action_category: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     assigned_to: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    secondary_assigned_to: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     status: Mapped[TaskStatus] = mapped_column(
         Enum(TaskStatus), nullable=False, default=TaskStatus.PENDING
     )
@@ -47,16 +48,22 @@ class TaskBatch(Base):
     media_process_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     media_process_finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     match_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    match_format: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     match_uuid: Mapped[Optional[str]] = mapped_column(String(36), unique=True, index=True, nullable=True)
     match_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     metadata_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     metadata_confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    selection_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    video_id: Mapped[Optional[str]] = mapped_column(String(36), unique=True, index=True, nullable=True)
+    video_sha256: Mapped[Optional[str]] = mapped_column(String(64), unique=True, index=True, nullable=True)
+    video_filename: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     deadline: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     project = relationship("Project", back_populates="task_batches")
     assignee = relationship("User", back_populates="task_batches", foreign_keys=[assigned_to])
+    secondary_assignee = relationship("User", foreign_keys=[secondary_assigned_to])
     review_records = relationship("ReviewRecord", back_populates="task_batch", cascade="all, delete-orphan")
     annotations = relationship("FrameAnnotation", back_populates="task_batch", cascade="all, delete-orphan")
     batch_frames = relationship("BatchFrame", back_populates="task_batch", cascade="all, delete-orphan", order_by="BatchFrame.frame_index")

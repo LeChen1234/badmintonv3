@@ -8,7 +8,8 @@
               返回任务列表
             </el-button>
             <span style="margin-left: 12px; font-weight: 600;">
-              标注 - {{ batchName }} (帧 {{ currentFrame }}/{{ totalFrames }})
+              标注任务 · {{ batchName }} · 帧 {{ currentFrame }}/{{ totalFrames }}
+              <span v-if="currentTimestampMs !== null" class="frame-timestamp">· {{ formatTimestamp(currentTimestampMs) }}</span>
             </span>
           </div>
           <div class="header-right">
@@ -53,7 +54,7 @@
         <el-progress :percentage="chunkUploadPercent" :stroke-width="12" />
       </div>
 
-      <!-- 无帧时：上传图片或视频 -->
+      <!-- 无帧时上传源视频 -->
       <div v-if="totalFrames === 0" class="upload-section">
         <el-upload
           ref="uploadRef"
@@ -61,16 +62,15 @@
           drag
           :disabled="isMediaProcessing"
           :auto-upload="false"
-          :limit="200"
+          :limit="1"
           :on-change="onFileChange"
-          :on-exceed="() => ElMessage.warning('最多 200 张图片')"
-          accept=".jpg,.jpeg,.png,.bmp,.gif,.webp,.mp4,.avi,.mov,.mkv,.webm"
-          multiple
+          :on-exceed="() => ElMessage.warning('每个任务只能上传一个视频')"
+          accept=".mp4,.avi,.mov,.mkv,.webm,.flv"
         >
           <el-icon class="upload-icon"><UploadFilled /></el-icon>
           <div class="upload-text">
-            <p>将图片或视频拖到此处，或点击上传</p>
-            <p class="upload-hint">支持多张图片 (jpg/png/gif等) 或一个视频 (mp4/avi/mov等)，视频将自动按帧提取</p>
+            <p>将视频拖到此处，或点击选择文件</p>
+            <p class="upload-hint">每个任务接收一个视频；系统校验内容重复后生成独立视频 ID，并为抽取帧记录时间戳。</p>
           </div>
         </el-upload>
 
@@ -114,10 +114,16 @@
           </el-tag>
         </div>
         <p class="metadata-step-desc">
-          请填写比赛日期、比赛名称，并补充选手信息（姓名必填，性别/年龄/身高可选）。支持 1 到 2 位选手。
+          请先选择单打或双打，再填写全部参赛运动员。单打固定 2 人，双打固定 4 人。
         </p>
 
         <el-form label-position="top" class="metadata-form">
+          <el-form-item label="比赛类型（必填）">
+            <el-radio-group v-model="metadataForm.match_format" @change="onMatchFormatChange">
+              <el-radio-button value="singles">单打（2 人）</el-radio-button>
+              <el-radio-button value="doubles">双打（4 人）</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
           <el-form-item label="比赛日期（必填）">
             <el-date-picker
               v-model="metadataForm.match_date"
@@ -135,7 +141,7 @@
 
           <div class="metadata-player-head">
             <span>选手信息</span>
-            <el-button size="small" type="primary" plain :disabled="metadataForm.players.length >= 2" @click="addPlayer">
+            <el-button size="small" type="primary" plain :disabled="metadataForm.players.length >= expectedPlayerCount" @click="addPlayer">
               + 添加选手
             </el-button>
           </div>
@@ -150,6 +156,11 @@
                 <el-col :xs="24" :sm="12">
                   <el-form-item label="姓名（必填）">
                     <el-input v-model="player.name" maxlength="128" placeholder="如：张三" />
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="12">
+                  <el-form-item label="匿名受试者编码">
+                    <el-input v-model="player.subject_code" maxlength="64" placeholder="ATHLETE_001（跨比赛保持一致）" />
                   </el-form-item>
                 </el-col>
                 <el-col :xs="24" :sm="12">
@@ -193,8 +204,20 @@
                 <el-button size="small" @click="zoomInFrame" :disabled="frameZoom >= MAX_FRAME_ZOOM">+</el-button>
                 <span class="frame-zoom-text">缩放 {{ Math.round(frameZoom * 100) }}%</span>
                 <span class="frame-zoom-hint">滚轮缩放；空格/中键拖动</span>
+                <span class="point-size-label">关键点尺寸</span>
+                <el-slider
+                  v-model="keypointSizePx"
+                  class="point-size-slider"
+                  :min="3"
+                  :max="14"
+                  :step="1"
+                  :show-tooltip="true"
+                  :format-tooltip="(value: number) => `${value}px`"
+                  aria-label="关键点显示尺寸"
+                />
+                <span class="point-size-value">{{ keypointSizePx }} px</span>
               </div>
-              <!-- 帧图片 + 关键点画布 + 标注可视化叠加 -->
+              <!-- 当前帧、标注画布和状态叠加层 -->
               <div class="frame-wrapper" v-if="frameImageUrl">
                 <div
                   class="frame-viewport"
@@ -211,6 +234,9 @@
                       @error="onImageError"
                       @load="drawKeypointsCanvas"
                     />
+                    <div class="image-timestamp" v-if="currentTimestampMs !== null">
+                      {{ formatTimestamp(currentTimestampMs) }}
+                    </div>
                     <canvas
                       ref="canvasRef"
                       class="keypoints-canvas"
@@ -222,25 +248,29 @@
                     />
                   </div>
                 </div>
-                <div class="annotation-overlay" v-if="currentAnnotation || selectedPlayerLabel || form.action_type || form.action_phase || form.quality_rating">
+                <div class="annotation-overlay" v-if="currentAnnotation || selectedPlayerLabel || form.action_type || form.action_phase || form.quality_rating || form.is_contact_event">
                   <div class="overlay-tags">
                     <el-tag v-if="selectedPlayerLabel" type="info" size="small">{{ selectedPlayerLabel }}</el-tag>
                     <el-tag v-if="form.action_type" type="primary" size="small">{{ actionTypeLabel(form.action_type) }}</el-tag>
                     <el-tag v-if="form.action_phase" type="success" size="small">{{ actionPhaseLabel(form.action_phase) }}</el-tag>
                     <el-tag v-if="form.quality_rating" type="warning" size="small">{{ qualityLabel(form.quality_rating) }}</el-tag>
                     <el-tag v-if="form.is_forced_action" type="danger" size="small">受迫性动作</el-tag>
+                    <el-tag v-if="form.is_contact_event" type="danger" size="small" effect="dark">击球接触</el-tag>
+                    <el-tag v-if="form.is_contact_event && contactForm.contact_zone" size="small">
+                      击球区：{{ contactZoneLabel(contactForm.contact_zone) }}
+                    </el-tag>
                     <el-tag v-if="hasBBox" type="success" size="small">人物框已标注</el-tag>
                   </div>
                   <div class="overlay-annotator" v-if="currentAnnotation?.annotator_name">
-                    标注: {{ currentAnnotation.annotator_name }} · {{ statusLabel }}
+                    标注员：{{ currentAnnotation.annotator_name }} · {{ statusLabel }}
                   </div>
                 </div>
               </div>
               <div class="frame-placeholder" v-else>
                 <el-icon :size="48"><Picture /></el-icon>
                 <p>帧 #{{ currentFrame }}</p>
-                <p class="frame-hint" v-if="loadingImage">加载中...</p>
-                <p class="frame-hint" v-else>无图像</p>
+                <p class="frame-hint" v-if="loadingImage">正在加载图像…</p>
+                <p class="frame-hint" v-else>当前帧无可用图像</p>
               </div>
             </div>
 
@@ -267,53 +297,130 @@
 
           <el-col :span="8">
             <el-form label-width="90px" label-position="top" class="annotation-form">
+              <el-alert
+                :type="isStudentAnnotator ? 'info' : 'warning'"
+                :closable="false"
+                :title="isStudentAnnotator ? '学生粗标：身份、边界框、关键点、基础动作与接触事件' : '专家判定：阶段、质量、受迫性与接触技术属性'"
+                style="margin-bottom: 14px"
+              />
+              <el-form-item label="本帧人物记录">
+                <div class="frame-person-records">
+                  <div
+                    v-for="record in frameAnnotations"
+                    :key="record.id"
+                    class="person-layer-row"
+                  >
+                    <el-checkbox
+                      :model-value="isAnnotationVisible(record.id)"
+                      @change="toggleAnnotationVisibility(record.id)"
+                    >{{ playerName(record.selected_player_id) }}</el-checkbox>
+                    <el-button size="small" :type="currentAnnotation?.id === record.id ? 'primary' : undefined"
+                      @click="selectFrameAnnotation(record)">编辑</el-button>
+                  </div>
+                  <el-button size="small" plain @click="startNewPersonAnnotation">新增人物</el-button>
+                </div>
+              </el-form-item>
               <el-form-item label="选手（必选）">
-                <el-select v-model="form.selected_player_id" placeholder="选择选手" style="width: 100%;">
+                <el-select v-model="form.selected_player_id" placeholder="为当前边界框选择人员" style="width: 100%;" @change="onPlayerSelectionChange">
                   <el-option v-for="opt in annotationPlayerOptions" :key="opt.id" :label="opt.label" :value="opt.id" />
                 </el-select>
               </el-form-item>
 
               <el-form-item label="动作类型（必选）">
                 <el-select v-model="form.action_type" placeholder="选择动作类型" style="width: 100%;">
-                  <el-option label="杀球 (Smash)" value="smash" />
-                  <el-option label="高远球 (Clear)" value="clear" />
-                  <el-option label="吊球 (Drop Shot)" value="drop_shot" />
-                  <el-option label="搓球 (Net Shot)" value="net_shot" />
-                  <el-option label="挑球 (Lift)" value="lift" />
-                  <el-option label="推球 (Push)" value="push" />
-                  <el-option label="扑球 (Rush)" value="rush" />
-                  <el-option label="抽球 (Drive)" value="drive" />
-                  <el-option label="发球 (Serve)" value="serve" />
-                  <el-option label="接发球 (Receive)" value="receive" />
-                  <el-option label="其他 (Other)" value="other" />
+                  <el-option v-for="opt in taxonomy.actions" :key="opt.value" :label="opt.label" :value="opt.value" />
                 </el-select>
               </el-form-item>
 
               <el-form-item label="动作阶段">
-                <el-select v-model="form.action_phase" placeholder="选择阶段" clearable style="width: 100%;">
-                  <el-option label="准备 (Preparation)" value="preparation" />
-                  <el-option label="引拍 (Backswing)" value="backswing" />
-                  <el-option label="击球 (Impact)" value="impact" />
-                  <el-option label="随挥 (Follow-through)" value="follow_through" />
-                  <el-option label="回位 (Recovery)" value="recovery" />
+                <el-select v-model="form.action_phase" placeholder="由体育专家判定" clearable style="width: 100%;" :disabled="isStudentAnnotator">
+                  <el-option v-for="opt in taxonomy.phases" :key="opt.value" :label="opt.label" :value="opt.value" />
                 </el-select>
               </el-form-item>
 
               <el-form-item label="动作质量">
-                <el-select v-model="form.quality_rating" placeholder="评分" clearable style="width: 100%;">
-                  <el-option label="优秀" value="excellent" />
-                  <el-option label="良好" value="good" />
-                  <el-option label="一般" value="average" />
-                  <el-option label="较差" value="poor" />
+                <el-select v-model="form.quality_rating" placeholder="由体育专家判定" clearable style="width: 100%;" :disabled="isStudentAnnotator">
+                  <el-option v-for="opt in taxonomy.qualities" :key="opt.value" :label="opt.label" :value="opt.value" />
                 </el-select>
               </el-form-item>
 
               <el-form-item label="受迫性动作">
-                <el-radio-group v-model="form.is_forced_action">
+                <el-radio-group v-model="form.is_forced_action" :disabled="isStudentAnnotator">
                   <el-radio :label="false">否</el-radio>
                   <el-radio :label="true">是</el-radio>
                 </el-radio-group>
               </el-form-item>
+
+              <el-divider content-position="left">击球接触标注</el-divider>
+              <el-form-item label="本帧为击球接触事件">
+                <el-switch v-model="form.is_contact_event" @change="onContactEventToggle" />
+              </el-form-item>
+              <template v-if="form.is_contact_event">
+              <el-form-item label="接触帧容差（±1 帧）">
+                  <el-switch v-model="contactForm.tolerance_flag" />
+                </el-form-item>
+                <el-form-item label="拍面击球区">
+                  <el-select v-model="contactForm.contact_zone" clearable placeholder="由体育专家判定" style="width: 100%;" :disabled="isStudentAnnotator">
+                    <el-option v-for="z in CONTACT_ZONES" :key="z.value" :label="z.label" :value="z.value" />
+                  </el-select>
+                </el-form-item>
+              <el-form-item label="拍面姿态">
+                  <el-select v-model="contactForm.face_attitude" clearable placeholder="由体育专家判定" style="width: 100%;" :disabled="isStudentAnnotator">
+                    <el-option v-for="a in FACE_ATTITUDES" :key="a.value" :label="a.label" :value="a.value" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="支撑脚">
+                  <el-select v-model="contactForm.support_foot" clearable placeholder="由体育专家判定" style="width: 100%;" :disabled="isStudentAnnotator">
+                    <el-option v-for="f in SUPPORT_FEET" :key="f.value" :label="f.label" :value="f.value" />
+                  </el-select>
+                </el-form-item>
+              <el-form-item label="技术偏差属性">
+                  <el-select v-model="contactForm.error_attributes" multiple clearable placeholder="由体育专家判定" style="width: 100%;" :disabled="isStudentAnnotator">
+                    <el-option v-for="e in ERROR_ATTRIBUTES" :key="e.value" :label="e.label" :value="e.value" />
+                  </el-select>
+                </el-form-item>
+              <el-form-item label="拍面归一化坐标 (u, v)">
+                  <span class="uv-readout">
+                    {{
+                      contactForm.contact_uv.u != null && contactForm.contact_uv.v != null
+                        ? `u=${contactForm.contact_uv.u}, v=${contactForm.contact_uv.v}`
+                        : '标齐拍面四角与击球点后自动计算'
+                    }}
+                  </span>
+                </el-form-item>
+                <el-form-item label="接触几何标注">
+                  <div class="layer-mode-actions">
+                    <el-button
+                      size="small"
+                      :type="annotationLayerMode === 'contact_face' ? 'primary' : undefined"
+                      @click="switchToContactFaceMode"
+                    >拍面四角</el-button>
+                    <el-button
+                      size="small"
+                      :type="annotationLayerMode === 'contact_point' ? 'primary' : undefined"
+                      @click="annotationLayerMode = 'contact_point'"
+                    >击球点</el-button>
+                    <el-button
+                      size="small"
+                      :type="annotationLayerMode === 'contact_shuttle' ? 'primary' : undefined"
+                      @click="annotationLayerMode = 'contact_shuttle'"
+                    >羽毛球点</el-button>
+                  </div>
+                  <div class="keypoint-hint" v-if="annotationLayerMode === 'contact_face'">
+                    依次点选：{{ FACE_CORNER_LABELS[contactForm.face_corners[selectedFaceCornerIndex]?.name] || '拍面角点' }}
+                    （当前 {{ selectedFaceCornerIndex + 1 }}/4）
+                  </div>
+                  <div class="keypoint-hint" v-else-if="annotationLayerMode === 'contact_point'">
+                    在拍面投影内点击击球接触位置（图像坐标；会反算面参数 u,v）
+                  </div>
+                  <div class="keypoint-hint" v-else-if="annotationLayerMode === 'contact_shuttle'">
+                    点击羽毛球位置；不可见时可跳过
+                  </div>
+                  <div class="keypoint-actions" style="margin-top: 8px;">
+                    <el-button size="small" @click="clearContactGeometry">清除接触几何</el-button>
+                  </div>
+                </el-form-item>
+              </template>
 
               <el-form-item label="备注">
                 <el-input v-model="form.notes" type="textarea" :rows="3" placeholder="可选备注" />
@@ -322,18 +429,18 @@
               <el-divider />
               <el-form-item label="标注图层">
                 <div class="layer-mode-actions">
-                  <el-button :type="annotationLayerMode === 'skeleton' ? 'primary' : undefined" @click="switchToSkeletonMode">标注骨架图</el-button>
-                  <el-button :type="annotationLayerMode === 'box' ? 'primary' : undefined" @click="startBoxAnnotation">开始标注Box</el-button>
-                  <el-button plain @click="clearBBox" :disabled="!hasBBox">清除Box</el-button>
+                  <el-button :type="annotationLayerMode === 'skeleton' ? 'primary' : undefined" @click="switchToSkeletonMode">人体关键点</el-button>
+                  <el-button :type="annotationLayerMode === 'box' ? 'primary' : undefined" @click="startBoxAnnotation">人物边界框</el-button>
+                  <el-button plain @click="clearBBox" :disabled="!hasBBox">清除边界框</el-button>
                 </div>
                 <div class="keypoint-hint" v-if="annotationLayerMode === 'box'">
-                  在左侧图片上按下并拖拽鼠标画出矩形框，松开即完成。
+                  在图像区域按住并拖动指针，释放后完成边界框标注。
                 </div>
               </el-form-item>
 
               <el-divider />
               <el-form-item label="关键点标注（25 点）" v-if="annotationLayerMode === 'skeleton'">
-                <div class="keypoint-hint">点击下方按钮选择节点，再在左侧画面点击设点或拖拽已有点调整；不同部位颜色不同。</div>
+                <div class="keypoint-hint">选择关键点后在图像中定位；可直接拖动已有点进行修正。顶部滑块仅调整显示尺寸，不改变标注坐标。</div>
                 <div class="keypoint-buttons">
                   <el-button
                     v-for="(kp, idx) in keypointsList"
@@ -349,11 +456,27 @@
                 </div>
                 <div class="keypoint-actions">
                   <el-button size="small" type="primary" :loading="predictingKeypoints" @click="applyPredictKeypoints">
-                    算法辅助标注（多人识别）
+                    运行多人姿态预标注
                   </el-button>
                   <el-button size="small" @click="clearCurrentKeypoint">清除当前点</el-button>
                   <el-button size="small" @click="clearAllKeypoints">清除全部</el-button>
                 </div>
+                <el-alert v-if="currentAssist" class="assist-panel" :closable="false"
+                  :type="currentAssist.review_priority >= 0.65 ? 'warning' : 'success'">
+                  <template #title>
+                    姿态估计质量控制（Pose Estimation Quality Control） · 规范 {{ taxonomyVersion }} ·
+                    估计置信度 {{ percent(currentAssist.confidence) }} · 人工复核优先级 {{ percent(currentAssist.review_priority) }}
+                  </template>
+                  <div class="assist-detail">
+                    <span>建议阶段：{{ currentAssist.suggested_phase ? actionPhaseLabel(currentAssist.suggested_phase) : '不自动判断' }}</span>
+                    <span>姿态完整度：{{ Number(currentAssist.features?.quality_energy || 0).toFixed(2) }}</span>
+                    <span>预测不确定度：{{ Number(currentAssist.uncertainty || 0).toFixed(2) }}</span>
+                  </div>
+                  <div class="assist-reasons">通俗解释：置信度表示当前骨架有多可信；不确定度越高、复核优先级越高，就越需要人工检查。</div>
+                  <div class="assist-reasons">{{ (currentAssist.reasons || []).join('；') }}</div>
+                  <el-button v-if="currentAssist.suggested_phase || currentAssist.suggested_quality"
+                    size="small" type="primary" plain @click="acceptAssistSuggestion">采用建议</el-button>
+                </el-alert>
               </el-form-item>
 
               <el-divider />
@@ -391,18 +514,19 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showPersonSelect" title="选择要应用的人" width="400px">
-      <p>检测到 {{ predictedPersons.length }} 人，请选择要应用到当前帧骨架的一人：</p>
-      <div class="person-select-btns">
+      <el-dialog v-model="showPersonSelect" title="全图多人检测结果" width="560px">
+        <p>检测到 {{ predictedPersons.length }} 人，已按画面从左到右排列。低置信候选会保留给人工确认：</p>
+        <div class="person-select-btns">
         <el-button
-          v-for="(_, idx) in predictedPersons"
+          v-for="(person, idx) in predictedPersons"
           :key="idx"
           type="primary"
           plain
           @click="applyPredictedPerson(idx)"
         >
-          第 {{ idx + 1 }} 人
-        </el-button>
+            第 {{ idx + 1 }} 人 · 检测 {{ percent(person.detection_confidence) }}
+            · 可见点 {{ person.visible_keypoints }}/23 · {{ person.source === 'yolo-tile' ? '小目标增强' : '全图检测' }}
+          </el-button>
       </div>
     </el-dialog>
   </div>
@@ -426,16 +550,32 @@ import {
   keypointsFromApi,
   type KeypointItem,
 } from '@/constants/keypoints'
+import {
+  CONTACT_ZONES,
+  FACE_ATTITUDES,
+  SUPPORT_FEET,
+  ERROR_ATTRIBUTES,
+  FACE_CORNER_LABELS,
+  emptyContactPayload,
+  normalizeContactPayload,
+  recomputeContactUv,
+  type ContactPayload,
+} from '@/constants/contact'
 
 const route = useRoute()
 const authStore = useAuthStore()
 const batchId = Number(route.params.batchId)
+const isStudentAnnotator = computed(() => authStore.role === 'student')
 
 const batchName = ref('')
 const totalFrames = ref(0)
 const currentFrame = ref(1)
 const annotatedCount = ref(0)
 const currentAnnotation = ref<any>(null)
+const frameAnnotations = ref<any[]>([])
+const hiddenAnnotationIds = ref<Set<number>>(new Set())
+const frameTimestamps = ref<Record<number, number>>({})
+const currentTimestampMs = computed(() => frameTimestamps.value[currentFrame.value] ?? null)
 const saving = ref(false)
 const submitting = ref(false)
 const confirming = ref(false)
@@ -460,16 +600,18 @@ type PlayerMeta = {
   id?: number
   uuid?: string
   name: string
+  subject_code: string
   gender: 'male' | 'female' | ''
   age: number | null
   height_cm: number | null
 }
 
 function createEmptyPlayer(): PlayerMeta {
-  return { name: '', gender: '', age: null, height_cm: null }
+  return { name: '', subject_code: '', gender: '', age: null, height_cm: null }
 }
 
 const metadataForm = reactive({
+  match_format: '' as 'singles' | 'doubles' | '',
   match_date: '',
   match_name: '',
   players: [createEmptyPlayer()] as PlayerMeta[],
@@ -496,8 +638,10 @@ const isMediaProcessing = computed(
 const hasUploadedMedia = computed(
   () => totalFrames.value > 0 || mediaProcessStatus.value !== 'idle',
 )
-const metadataReady = computed(
-  () => !!metadataForm.match_date && !!metadataForm.match_name.trim() && metadataForm.players.some((p) => !!p.name.trim()),
+const metadataReady = computed(() =>
+  !!metadataForm.match_date && !!metadataForm.match_name.trim() && !!metadataForm.match_format
+  && metadataForm.players.length === expectedPlayerCount.value
+  && metadataForm.players.every((p) => !!p.name.trim()),
 )
 const canAnnotate = computed(
   () => totalFrames.value > 0 && metadataConfirmed.value,
@@ -548,9 +692,44 @@ const form = reactive({
   box_y: null as number | null,
   box_w: null as number | null,
   box_h: null as number | null,
+  is_contact_event: false,
 })
+const expectedPlayerCount = computed(() => metadataForm.match_format === 'doubles' ? 4 : 2)
+const playerName = (playerId: number | null) => annotationPlayerOptions.value.find((p) => p.id === playerId)?.label || '未指定人员'
+const formatTimestamp = (milliseconds: number) => {
+  const total = Math.max(0, Math.round(milliseconds))
+  const minutes = Math.floor(total / 60000)
+  const seconds = Math.floor((total % 60000) / 1000)
+  const millis = total % 1000
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(millis).padStart(3, '0')}`
+}
 
-const annotationLayerMode = ref<'skeleton' | 'box'>('skeleton')
+type TaxonomyOption = { value: string; label: string }
+const taxonomy = reactive({
+  actions: [] as TaxonomyOption[],
+  phases: [] as TaxonomyOption[],
+  qualities: [] as TaxonomyOption[],
+})
+const taxonomyVersion = ref('unknown')
+const assistAccepted = ref(false)
+let frameOpenedAt = performance.now()
+
+async function loadTaxonomy() {
+  const response = await request.get('/config')
+  const source = response.data?.annotation_taxonomy
+  if (!source?.actions?.length || !source?.phases?.length || !source?.qualities?.length) {
+    throw new Error('标注分类配置不可用')
+  }
+  taxonomy.actions = source.actions
+  taxonomy.phases = source.phases
+  taxonomy.qualities = source.qualities
+  taxonomyVersion.value = String(source.version || 'unknown')
+}
+
+const contactForm = reactive<ContactPayload>(emptyContactPayload())
+const selectedFaceCornerIndex = ref(0)
+
+const annotationLayerMode = ref<'skeleton' | 'box' | 'contact_face' | 'contact_point' | 'contact_shuttle'>('skeleton')
 const isDrawingBox = ref(false)
 const draftBox = ref<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
 const hasBBox = computed(
@@ -565,8 +744,8 @@ const frameWrapRef = ref<HTMLDivElement | null>(null)
 const MIN_FRAME_ZOOM = 0.5
 const MAX_FRAME_ZOOM = 4
 const FRAME_ZOOM_STEP = 0.1
-const KEYPOINT_RADIUS = 1.5
-const SELECTED_KEYPOINT_RADIUS = 2.2
+const storedKeypointSize = Number(window.localStorage.getItem('annotation-keypoint-size-px'))
+const keypointSizePx = ref(Number.isFinite(storedKeypointSize) && storedKeypointSize >= 3 && storedKeypointSize <= 14 ? storedKeypointSize : 7)
 const frameZoom = ref(1)
 const framePanX = ref(0)
 const framePanY = ref(0)
@@ -582,18 +761,74 @@ const frameTransformStyle = computed(() => ({
 }))
 const draggingPointIndex = ref<number | null>(null)
 const predictingKeypoints = ref(false)
-/** 本次按下后是否发生了拖拽，用于区分点击与拖拽 */
 const didDragThisPointer = ref(false)
-/** 算法检测到的多人关键点，用于弹窗选择 */
-const predictedPersons = ref<{ keypoints: { name: string; x: number; y: number; visibility: number }[] }[]>([])
+interface AssistResult {
+  confidence: number
+  uncertainty: number
+  review_priority: number
+  suggested_phase: string | null
+  suggested_quality: string | null
+  phase_probabilities: Record<string, number>
+  features: Record<string, number | string>
+  reasons: string[]
+}
+type PredictedPerson = {
+  keypoints: { name: string; x: number; y: number; visibility: number }[]
+  bbox: [number, number, number, number]
+  detection_confidence: number
+  visible_keypoints: number
+  source: string
+  assist?: AssistResult
+}
+const predictedPersons = ref<PredictedPerson[]>([])
+const currentAssist = ref<AssistResult | null>(null)
+const percent = (value: number) => `${Math.round(Math.max(0, Math.min(1, value || 0)) * 100)}%`
 const showPersonSelect = ref(false)
 
-const actionTypeLabel = (v: string) =>
-  ({ smash: '杀球', clear: '高远球', drop_shot: '吊球', net_shot: '搓球', lift: '挑球', push: '推球', rush: '扑球', drive: '抽球', serve: '发球', receive: '接发球', other: '其他' }[v] || v)
-const actionPhaseLabel = (v: string) =>
-  ({ preparation: '准备', backswing: '引拍', impact: '击球', follow_through: '随挥', recovery: '回位' }[v] || v)
-const qualityLabel = (v: string) =>
-  ({ excellent: '优秀', good: '良好', average: '一般', poor: '较差' }[v] || v)
+const optionLabel = (options: TaxonomyOption[], value: string) => options.find((item) => item.value === value)?.label || value
+const actionTypeLabel = (v: string) => optionLabel(taxonomy.actions, v)
+const actionPhaseLabel = (v: string) => optionLabel(taxonomy.phases, v)
+const qualityLabel = (v: string) => optionLabel(taxonomy.qualities, v)
+const contactZoneLabel = (v: string) => CONTACT_ZONES.find((z) => z.value === v)?.label || v
+
+function onContactEventToggle(val: string | number | boolean) {
+  if (val) {
+    if (!form.action_phase || form.action_phase === 'impact') {
+      form.action_phase = 'contact'
+    }
+  } else if (annotationLayerMode.value.startsWith('contact')) {
+    annotationLayerMode.value = 'skeleton'
+  }
+}
+
+function switchToContactFaceMode() {
+  annotationLayerMode.value = 'contact_face'
+  selectedFaceCornerIndex.value = 0
+}
+
+function clearContactGeometry() {
+  const fresh = emptyContactPayload()
+  fresh.tolerance_flag = contactForm.tolerance_flag
+  fresh.contact_zone = contactForm.contact_zone
+  fresh.face_attitude = contactForm.face_attitude
+  fresh.support_foot = contactForm.support_foot
+  fresh.error_attributes = [...contactForm.error_attributes]
+  Object.assign(contactForm, fresh)
+  selectedFaceCornerIndex.value = 0
+  drawKeypointsCanvas()
+}
+
+function assignContactPayload(src: ContactPayload) {
+  contactForm.tolerance_flag = src.tolerance_flag
+  contactForm.shuttle = { ...src.shuttle }
+  contactForm.face_corners = src.face_corners.map((c) => ({ ...c }))
+  contactForm.contact_point = { ...src.contact_point }
+  contactForm.contact_uv = { ...src.contact_uv }
+  contactForm.contact_zone = src.contact_zone
+  contactForm.face_attitude = src.face_attitude
+  contactForm.support_foot = src.support_foot
+  contactForm.error_attributes = [...src.error_attributes]
+}
 
 const canConfirm = computed(() => {
   const role = authStore.user?.role
@@ -649,15 +884,17 @@ function applyMediaProcessState(data: any) {
 }
 
 function applyBatchMetadataState(data: any) {
+  metadataForm.match_format = data?.match_format === 'doubles' ? 'doubles' : data?.match_format === 'singles' ? 'singles' : ''
   metadataForm.match_date = data?.match_date || ''
   metadataForm.match_name = data?.match_name || ''
   const players = Array.isArray(data?.players) ? data.players : []
   const normalized = players
-    .slice(0, 2)
+    .slice(0, 4)
     .map((p: any) => ({
       id: Number.isInteger(p?.id) ? p.id : undefined,
       uuid: typeof p?.uuid === 'string' ? p.uuid : undefined,
       name: typeof p?.name === 'string' ? p.name : '',
+      subject_code: typeof p?.subject_code === 'string' ? p.subject_code : '',
       gender: p?.gender === 'male' || p?.gender === 'female' ? p.gender : '',
       age: Number.isInteger(p?.age) ? p.age : null,
       height_cm: Number.isInteger(p?.height_cm) ? p.height_cm : null,
@@ -667,8 +904,14 @@ function applyBatchMetadataState(data: any) {
 }
 
 function addPlayer() {
-  if (metadataForm.players.length >= 2) return
+  if (metadataForm.players.length >= expectedPlayerCount.value) return
   metadataForm.players.push(createEmptyPlayer())
+}
+
+function onMatchFormatChange() {
+  const expected = expectedPlayerCount.value
+  while (metadataForm.players.length < expected) metadataForm.players.push(createEmptyPlayer())
+  if (metadataForm.players.length > expected) metadataForm.players.splice(expected)
 }
 
 function removePlayer(index: number) {
@@ -681,11 +924,12 @@ function removePlayer(index: number) {
 
 function buildMetadataPlayersPayload() {
   return metadataForm.players
-    .slice(0, 2)
+    .slice(0, 4)
     .map((p) => ({
       id: Number.isInteger(p.id) ? p.id : undefined,
       uuid: p.uuid || undefined,
       name: p.name.trim() || undefined,
+      subject_code: p.subject_code.trim() || undefined,
       gender: p.gender || undefined,
       age: Number.isInteger(p.age) ? p.age ?? undefined : undefined,
       height_cm: Number.isInteger(p.height_cm) ? p.height_cm ?? undefined : undefined,
@@ -739,7 +983,8 @@ async function loadBatchInfo() {
     applyMediaProcessState(res.data)
     applyBatchMetadataState(res.data)
     const framesRes = await taskApi.getFrames(batchId)
-    const frames = (framesRes.data || []) as { frame_index: number; file_path: string }[]
+    const frames = (framesRes.data || []) as { frame_index: number; file_path: string; timestamp_ms: number }[]
+    frameTimestamps.value = Object.fromEntries(frames.map((frame) => [frame.frame_index, Number(frame.timestamp_ms || 0)]))
     if (frames.length === 0) {
       totalFrames.value = 0
     } else {
@@ -761,6 +1006,7 @@ function onImageError() {
 }
 
 async function loadFrameImage() {
+  currentAssist.value = null
   if (totalFrames.value < 1 || currentFrame.value < 1) return
   revokeFrameImageUrl()
   loadingImage.value = true
@@ -772,35 +1018,93 @@ async function loadFrameImage() {
   finally { loadingImage.value = false }
 }
 
-async function loadAnnotation() {
+function clearPersonAnnotationForm(keepPlayer = false) {
+  currentAnnotation.value = null
+  if (!keepPlayer) form.selected_player_id = null
+  form.action_type = ''
+  form.action_phase = ''
+  form.quality_rating = ''
+  form.is_forced_action = false
+  form.notes = ''
+  form.is_contact_event = false
+  assignContactPayload(emptyContactPayload())
+  form.box_x = null
+  form.box_y = null
+  form.box_w = null
+  form.box_h = null
+  keypointsList.value = createEmptyKeypoints()
+  currentAssist.value = null
+}
+
+function applyFrameAnnotation(annotation: any) {
+  currentAnnotation.value = annotation
+  form.selected_player_id = Number.isInteger(annotation.selected_player_id) ? annotation.selected_player_id : null
+  form.action_type = annotation.action_type || ''
+  form.action_phase = annotation.action_phase || ''
+  form.quality_rating = annotation.quality_rating || ''
+  form.is_forced_action = !!annotation.is_forced_action
+  form.notes = annotation.notes || ''
+  form.is_contact_event = !!annotation.is_contact_event
+  assignContactPayload(normalizeContactPayload(annotation.contact))
+  form.box_x = typeof annotation.box_x === 'number' ? annotation.box_x : null
+  form.box_y = typeof annotation.box_y === 'number' ? annotation.box_y : null
+  form.box_w = typeof annotation.box_w === 'number' ? annotation.box_w : null
+  form.box_h = typeof annotation.box_h === 'number' ? annotation.box_h : null
+  keypointsList.value = keypointsFromApi(annotation.keypoints)
+  currentAssist.value = annotation.assist_metadata || null
+  assistAccepted.value = !!annotation.assist_accepted
+}
+
+function selectFrameAnnotation(annotation: any) {
+  applyFrameAnnotation(annotation)
+  drawKeypointsCanvas()
+}
+
+function isAnnotationVisible(annotationId: number) {
+  return !hiddenAnnotationIds.value.has(annotationId)
+}
+
+function toggleAnnotationVisibility(annotationId: number) {
+  const next = new Set(hiddenAnnotationIds.value)
+  if (next.has(annotationId)) next.delete(annotationId)
+  else next.add(annotationId)
+  hiddenAnnotationIds.value = next
+  drawKeypointsCanvas()
+}
+
+function startNewPersonAnnotation() {
+  clearPersonAnnotationForm()
+  annotationLayerMode.value = 'box'
+  ElMessage.info('请先选择人员身份，再绘制该人物的边界框')
+}
+
+function onPlayerSelectionChange(playerId: number) {
+  const existing = frameAnnotations.value.find((item) => item.selected_player_id === playerId)
+  if (existing) {
+    applyFrameAnnotation(existing)
+  } else if (currentAnnotation.value?.selected_player_id !== playerId) {
+    clearPersonAnnotationForm(true)
+    form.selected_player_id = playerId
+    annotationLayerMode.value = 'box'
+  }
+  drawKeypointsCanvas()
+}
+
+async function loadAnnotation(preferredPlayerId?: number | null, preferredAnnotationId?: number | null) {
+  frameOpenedAt = performance.now()
+  assistAccepted.value = false
   try {
     const res = await annotationApi.list(batchId, { frame_index: currentFrame.value })
-    if (res.data && res.data.length > 0) {
-      currentAnnotation.value = res.data[0]
-      form.selected_player_id = Number.isInteger(res.data[0].selected_player_id) ? res.data[0].selected_player_id : null
-      form.action_type = res.data[0].action_type || ''
-      form.action_phase = res.data[0].action_phase || ''
-      form.quality_rating = res.data[0].quality_rating || ''
-      form.is_forced_action = !!res.data[0].is_forced_action
-      form.notes = res.data[0].notes || ''
-      form.box_x = typeof res.data[0].box_x === 'number' ? res.data[0].box_x : null
-      form.box_y = typeof res.data[0].box_y === 'number' ? res.data[0].box_y : null
-      form.box_w = typeof res.data[0].box_w === 'number' ? res.data[0].box_w : null
-      form.box_h = typeof res.data[0].box_h === 'number' ? res.data[0].box_h : null
-      keypointsList.value = keypointsFromApi(res.data[0].keypoints)
+    frameAnnotations.value = Array.isArray(res.data) ? res.data : []
+    hiddenAnnotationIds.value = new Set()
+    if (frameAnnotations.value.length > 0) {
+      const chosen = frameAnnotations.value.find((item) => item.id === preferredAnnotationId)
+        || frameAnnotations.value.find((item) => item.selected_player_id === preferredPlayerId)
+        || frameAnnotations.value[0]
+      applyFrameAnnotation(chosen)
     } else {
-      currentAnnotation.value = null
-      form.selected_player_id = null
-      form.action_type = ''
-      form.action_phase = ''
-      form.quality_rating = ''
-      form.is_forced_action = false
-      form.notes = ''
-      form.box_x = null
-      form.box_y = null
-      form.box_w = null
-      form.box_h = null
-      keypointsList.value = createEmptyKeypoints()
+      frameAnnotations.value = []
+      clearPersonAnnotationForm()
     }
   } catch { /* handled */ }
   await loadFrameImage()
@@ -843,10 +1147,25 @@ async function saveAnnotation() {
     ElMessage.warning('请选择动作类型')
     return
   }
+  if (!hasBBox.value) {
+    ElMessage.warning('请先绘制当前人员的边界框')
+    return
+  }
 
   saving.value = true
   try {
     const kpPayload = getKeypointsPayload()
+    if (form.is_contact_event) {
+      recomputeContactUv(contactForm)
+    }
+    const contactPayload = form.is_contact_event
+      ? JSON.parse(JSON.stringify(contactForm))
+      : null
+    const provenance = {
+      assist_metadata: currentAssist.value ? JSON.parse(JSON.stringify(currentAssist.value)) : null,
+      assist_accepted: assistAccepted.value,
+      annotation_duration_ms: Math.max(0, Math.round(performance.now() - frameOpenedAt)),
+    }
     if (currentAnnotation.value) {
       await annotationApi.update(currentAnnotation.value.id, {
         keypoints: kpPayload.length ? kpPayload : null,
@@ -860,6 +1179,9 @@ async function saveAnnotation() {
         quality_rating: form.quality_rating || null,
         is_forced_action: form.is_forced_action,
         notes: form.notes || null,
+        is_contact_event: form.is_contact_event,
+        contact: contactPayload,
+        ...provenance,
       })
       ElMessage.success('标注已更新')
     } else {
@@ -877,10 +1199,13 @@ async function saveAnnotation() {
         quality_rating: form.quality_rating || null,
         is_forced_action: form.is_forced_action,
         notes: form.notes || null,
+        is_contact_event: form.is_contact_event,
+        contact: contactPayload,
+        ...provenance,
       })
       ElMessage.success('标注已保存')
     }
-    await loadAnnotation()
+    await loadAnnotation(form.selected_player_id)
     await loadAnnotatedCount()
   } catch { /* handled */ }
   finally { saving.value = false }
@@ -966,7 +1291,6 @@ async function uploadVideoInChunks(file: File) {
   let newlyUploaded = 0
 
   for (let index = 0; index < totalChunks; index++) {
-    // 已经上传直接跳过（但最后一块如果是为了触发合并，则前端仍重新发一次）
     if (uploadedChunks.has(index) && index !== totalChunks - 1) {
       continue
     }
@@ -1015,23 +1339,19 @@ async function uploadVideoInChunks(file: File) {
 async function submitUpload() {
   if (!pendingFiles.value.length || isMediaProcessing.value) return
   const isVideo = pendingFiles.value.length === 1 && /\.(mp4|avi|mov|mkv|webm|flv)$/i.test(pendingFiles.value[0].name || '')
+  if (!isVideo) {
+    ElMessage.warning('仅支持上传一个视频文件')
+    return
+  }
   uploading.value = true
   try {
     let res: any
-    if (isVideo) {
-      const video = pendingFiles.value[0].raw
-      if (!video) {
-        ElMessage.warning('视频文件无效，请重新选择')
-        return
-      }
-      res = await uploadVideoInChunks(video)
-    } else {
-      const formData = new FormData()
-      pendingFiles.value.forEach((f) => {
-        if (f.raw) formData.append('files', f.raw)
-      })
-      res = await taskApi.upload(batchId, formData)
+    const video = pendingFiles.value[0].raw
+    if (!video) {
+      ElMessage.warning('视频文件无效，请重新选择')
+      return
     }
+    res = await uploadVideoInChunks(video)
 
     pendingFiles.value = []
     uploadRef.value?.clearFiles()
@@ -1065,6 +1385,7 @@ async function saveBatchMetadata(showSuccessMessage = true): Promise<boolean> {
   try {
     const players = buildMetadataPlayersPayload()
     const res = await taskApi.updateMetadata(batchId, {
+      match_format: metadataForm.match_format || undefined,
       match_date: metadataForm.match_date || undefined,
       match_name: metadataForm.match_name.trim(),
       players,
@@ -1089,7 +1410,7 @@ async function confirmBatchMetadata() {
   }
 
   if (!metadataReady.value) {
-    ElMessage.warning('请填写比赛日期、比赛名称，并至少填写一位选手名称')
+    ElMessage.warning(`请填写比赛信息及全部 ${expectedPlayerCount.value} 名运动员姓名`)
     return
   }
 
@@ -1124,6 +1445,7 @@ function clampFrameZoom(value: number) {
 
 function setFrameZoom(value: number) {
   frameZoom.value = clampFrameZoom(value)
+  drawKeypointsCanvas()
 }
 
 function zoomInFrame() {
@@ -1190,7 +1512,45 @@ function drawKeypointsCanvas() {
     canvas.style.height = h + 'px'
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+    const inverseZoom = 1 / Math.max(frameZoom.value, 0.01)
     ctx.clearRect(0, 0, w, h)
+
+    const layerColors = ['#00d4ff', '#ff8a00', '#d946ef', '#84cc16']
+    const drawSavedPersonLayer = (record: any, layerIndex: number) => {
+      if (!isAnnotationVisible(record.id) || record.id === currentAnnotation.value?.id) return
+      const color = layerColors[layerIndex % layerColors.length]
+      const bx = Number(record.box_x); const by = Number(record.box_y)
+      const bw = Number(record.box_w); const bh = Number(record.box_h)
+      if ([bx, by, bw, bh].every(Number.isFinite) && bw > 0 && bh > 0) {
+        const x = bx / 100 * w; const y = by / 100 * h
+        ctx.strokeStyle = color
+        ctx.lineWidth = 2 * inverseZoom
+        ctx.strokeRect(x, y, bw / 100 * w, bh / 100 * h)
+        ctx.fillStyle = color
+        ctx.font = `${Math.max(8, 12 * inverseZoom)}px "Microsoft YaHei", sans-serif`
+        ctx.fillText(playerName(record.selected_player_id), x + 4 * inverseZoom, y + 14 * inverseZoom)
+      }
+      const points = keypointsFromApi(record.keypoints)
+      ctx.strokeStyle = color
+      ctx.lineWidth = 1.5 * inverseZoom
+      for (const [start, end] of SKELETON_EDGES) {
+        const a = points[start]; const b = points[end]
+        if (!a || !b || a.visibility <= 0 || b.visibility <= 0) continue
+        ctx.beginPath()
+        ctx.moveTo(a.x / 100 * w, a.y / 100 * h)
+        ctx.lineTo(b.x / 100 * w, b.y / 100 * h)
+        ctx.stroke()
+      }
+      ctx.fillStyle = color
+      for (const point of points) {
+        if (point.visibility <= 0) continue
+        ctx.beginPath()
+        ctx.arc(point.x / 100 * w, point.y / 100 * h, keypointSizePx.value * inverseZoom, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+    frameAnnotations.value.forEach(drawSavedPersonLayer)
+    const currentLayerVisible = !currentAnnotation.value || isAnnotationVisible(currentAnnotation.value.id)
 
     if (annotationLayerMode.value === 'box') {
       const drawRect = (
@@ -1205,7 +1565,6 @@ function drawKeypointsCanvas() {
         const pw = (rw / 100) * w
         const ph = (rh / 100) * h
 
-        // 半透明填充先铺底，让框在复杂背景上也更容易识别。
         ctx.fillStyle = style.fill
         ctx.fillRect(px, py, pw, ph)
 
@@ -1213,7 +1572,7 @@ function drawKeypointsCanvas() {
         ctx.shadowColor = style.stroke
         ctx.shadowBlur = 10
         ctx.strokeStyle = style.stroke
-        ctx.lineWidth = 3
+        ctx.lineWidth = 3 * inverseZoom
         if (style.dashed) {
           ctx.setLineDash([8, 5])
         } else {
@@ -1223,7 +1582,7 @@ function drawKeypointsCanvas() {
         ctx.restore()
         ctx.setLineDash([])
 
-        const anchorR = 4
+        const anchorR = keypointSizePx.value * inverseZoom
         const corners = [
           [px, py],
           [px + pw, py],
@@ -1234,7 +1593,7 @@ function drawKeypointsCanvas() {
           ctx.beginPath()
           ctx.fillStyle = style.point
           ctx.strokeStyle = '#ffffff'
-          ctx.lineWidth = 1.5
+          ctx.lineWidth = 1.5 * inverseZoom
           ctx.arc(cx, cy, anchorR, 0, Math.PI * 2)
           ctx.fill()
           ctx.stroke()
@@ -1253,7 +1612,7 @@ function drawKeypointsCanvas() {
         ctx.fillText(labelText, labelX + padX, labelY + 14)
       }
 
-      if (hasBBox.value) {
+      if (hasBBox.value && currentLayerVisible) {
         drawRect(form.box_x as number, form.box_y as number, form.box_w as number, form.box_h as number, {
           stroke: '#22c55e',
           fill: 'rgba(34, 197, 94, 0.18)',
@@ -1278,9 +1637,9 @@ function drawKeypointsCanvas() {
       return
     }
 
-    const kps = keypointsList.value
+    const kps = currentLayerVisible ? keypointsList.value : []
     ctx.strokeStyle = 'rgba(0, 200, 100, 0.8)'
-    ctx.lineWidth = 2
+    ctx.lineWidth = 2 * inverseZoom
     for (const [i, j] of SKELETON_EDGES) {
       if (i >= kps.length || j >= kps.length) continue
       const a = kps[i]
@@ -1304,13 +1663,83 @@ function drawKeypointsCanvas() {
       const color = KEYPOINT_COLORS[i] || '#409eff'
       ctx.fillStyle = color
       ctx.strokeStyle = i === selectedKeypointIndex.value ? '#ff0' : '#fff'
-      ctx.lineWidth = i === selectedKeypointIndex.value ? 1 : 0.75
+      ctx.lineWidth = (i === selectedKeypointIndex.value ? 2 : 1) * inverseZoom
       ctx.beginPath()
-      ctx.arc(x, y, i === selectedKeypointIndex.value ? SELECTED_KEYPOINT_RADIUS : KEYPOINT_RADIUS, 0, Math.PI * 2)
+      const radius = (keypointSizePx.value + (i === selectedKeypointIndex.value ? 2 : 0)) * inverseZoom
+      ctx.arc(x, y, radius, 0, Math.PI * 2)
       ctx.fill()
       ctx.stroke()
     }
+
+    if (form.is_contact_event && currentLayerVisible) {
+      drawContactOverlay(ctx, w, h)
+    }
   })
+}
+
+function drawContactOverlay(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  const inverseZoom = 1 / Math.max(frameZoom.value, 0.01)
+  const pointRadius = keypointSizePx.value * inverseZoom
+  const corners = contactForm.face_corners.filter((c) => c.visibility > 0)
+  if (corners.length >= 2) {
+    const order = ['face_top', 'face_right', 'face_bottom', 'face_left']
+    const pts = order
+      .map((name) => contactForm.face_corners.find((c) => c.name === name && c.visibility > 0))
+      .filter(Boolean) as { x: number; y: number }[]
+    if (pts.length >= 3) {
+      ctx.beginPath()
+      ctx.moveTo((pts[0].x / 100) * w, (pts[0].y / 100) * h)
+      for (let i = 1; i < pts.length; i++) {
+        ctx.lineTo((pts[i].x / 100) * w, (pts[i].y / 100) * h)
+      }
+      ctx.closePath()
+      ctx.fillStyle = 'rgba(255, 87, 34, 0.18)'
+      ctx.strokeStyle = '#ff5722'
+      ctx.lineWidth = 2 * inverseZoom
+      ctx.fill()
+      ctx.stroke()
+    }
+  }
+  for (const c of contactForm.face_corners) {
+    if (c.visibility <= 0) continue
+    const x = (c.x / 100) * w
+    const y = (c.y / 100) * h
+    ctx.fillStyle = '#ff5722'
+    ctx.strokeStyle = '#fff'
+    ctx.lineWidth = 1.5 * inverseZoom
+    ctx.beginPath()
+    ctx.arc(x, y, pointRadius, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+  }
+  const cp = contactForm.contact_point
+  if (cp.visibility > 0 && cp.x != null && cp.y != null) {
+    const x = (cp.x / 100) * w
+    const y = (cp.y / 100) * h
+    ctx.strokeStyle = '#e91e63'
+    ctx.lineWidth = 2 * inverseZoom
+    ctx.beginPath()
+    ctx.moveTo(x - pointRadius - 2 * inverseZoom, y)
+    ctx.lineTo(x + pointRadius + 2 * inverseZoom, y)
+    ctx.moveTo(x, y - pointRadius - 2 * inverseZoom)
+    ctx.lineTo(x, y + pointRadius + 2 * inverseZoom)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(x, y, pointRadius, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+  const sh = contactForm.shuttle
+  if (sh.visibility > 0 && sh.x != null && sh.y != null) {
+    const x = (sh.x / 100) * w
+    const y = (sh.y / 100) * h
+    ctx.fillStyle = '#ffeb3b'
+    ctx.strokeStyle = '#333'
+    ctx.lineWidth = 1.5 * inverseZoom
+    ctx.beginPath()
+    ctx.arc(x, y, pointRadius, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+  }
 }
 
 function onCanvasClick(e: MouseEvent) {
@@ -1321,20 +1750,46 @@ function onCanvasClick(e: MouseEvent) {
   }
   const canvas = canvasRef.value
   if (!canvas) return
+  const rect = canvas.getBoundingClientRect()
+  const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
+  const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100))
+
+  if (annotationLayerMode.value === 'contact_face') {
+    const idx = selectedFaceCornerIndex.value
+    const corner = contactForm.face_corners[idx]
+    if (corner) {
+      corner.x = Number(x.toFixed(2))
+      corner.y = Number(y.toFixed(2))
+      corner.visibility = 2
+      selectedFaceCornerIndex.value = Math.min(idx + 1, contactForm.face_corners.length - 1)
+      recomputeContactUv(contactForm)
+      drawKeypointsCanvas()
+    }
+    return
+  }
+  if (annotationLayerMode.value === 'contact_point') {
+    contactForm.contact_point = { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)), visibility: 2 }
+    recomputeContactUv(contactForm)
+    drawKeypointsCanvas()
+    return
+  }
+  if (annotationLayerMode.value === 'contact_shuttle') {
+    contactForm.shuttle = { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)), visibility: 2 }
+    drawKeypointsCanvas()
+    return
+  }
+
   const hit = hitTestKeypoint(canvas, e.clientX, e.clientY)
   if (hit >= 0) {
     selectedKeypointIndex.value = hit
     return
   }
-  const rect = canvas.getBoundingClientRect()
-  const x = ((e.clientX - rect.left) / rect.width) * 100
-  const y = ((e.clientY - rect.top) / rect.height) * 100
   const idx = selectedKeypointIndex.value
   if (idx >= 0 && idx < keypointsList.value.length) {
     keypointsList.value[idx] = {
       ...keypointsList.value[idx],
-      x: Math.max(0, Math.min(100, x)),
-      y: Math.max(0, Math.min(100, y)),
+      x,
+      y,
       visibility: 2,
     }
     keypointsList.value = [...keypointsList.value]
@@ -1342,17 +1797,15 @@ function onCanvasClick(e: MouseEvent) {
   }
 }
 
-/** 命中半径（百分比），便于在图上点选/拖拽节点 */
-const HIT_RADIUS_PCT = 1.5
-
 function hitTestKeypoint(canvas: HTMLCanvasElement, clientX: number, clientY: number): number {
   const rect = canvas.getBoundingClientRect()
-  const px = ((clientX - rect.left) / rect.width) * 100
-  const py = ((clientY - rect.top) / rect.height) * 100
+  const hitRadiusPx = Math.max(10, keypointSizePx.value + 5)
   const kps = keypointsList.value
   for (let i = kps.length - 1; i >= 0; i--) {
     if (kps[i].visibility <= 0) continue
-    if (Math.hypot(kps[i].x - px, kps[i].y - py) < HIT_RADIUS_PCT) return i
+    const pointClientX = rect.left + (kps[i].x / 100) * rect.width
+    const pointClientY = rect.top + (kps[i].y / 100) * rect.height
+    if (Math.hypot(pointClientX - clientX, pointClientY - clientY) <= hitRadiusPx) return i
   }
   return -1
 }
@@ -1368,6 +1821,14 @@ function onCanvasMouseDown(e: MouseEvent) {
     isDrawingBox.value = true
     draftBox.value = { x1: x, y1: y, x2: x, y2: y }
     drawKeypointsCanvas()
+    return
+  }
+
+  if (
+    annotationLayerMode.value === 'contact_face' ||
+    annotationLayerMode.value === 'contact_point' ||
+    annotationLayerMode.value === 'contact_shuttle'
+  ) {
     return
   }
 
@@ -1492,12 +1953,24 @@ function clearAllKeypoints() {
 }
 
 async function applyPredictKeypoints() {
-  if (totalFrames.value < 1 || currentFrame.value < 1) return
+    if (totalFrames.value < 1 || currentFrame.value < 1) return
+    if (!hasBBox.value) {
+      ElMessage.warning('请先绘制人物边界框，再运行姿态预标注')
+      return
+    }
+    if (!form.selected_player_id) {
+      ElMessage.warning('请先为当前边界框选择人员身份')
+      return
+    }
   predictingKeypoints.value = true
   predictedPersons.value = []
+  currentAssist.value = null
   showPersonSelect.value = false
   try {
-    const res = await taskApi.predictKeypoints(batchId, currentFrame.value)
+      const res = await taskApi.predictKeypoints(batchId, currentFrame.value, {
+        x: form.box_x as number, y: form.box_y as number,
+        w: form.box_w as number, h: form.box_h as number,
+      })
     const persons = res.data?.persons
     if (!Array.isArray(persons) || persons.length === 0) {
       ElMessage.warning('未检测到人体关键点，请确认画面中有人体')
@@ -1505,6 +1978,7 @@ async function applyPredictKeypoints() {
     }
     if (persons.length === 1) {
       keypointsList.value = keypointsFromApi(persons[0].keypoints)
+      currentAssist.value = persons[0].assist || null
       drawKeypointsCanvas()
       ElMessage.success('已应用算法骨架，可继续微调或补标球拍等点位')
       return
@@ -1522,11 +1996,20 @@ function applyPredictedPerson(personIndex: number) {
   const persons = predictedPersons.value
   if (personIndex >= 0 && personIndex < persons.length) {
     keypointsList.value = keypointsFromApi(persons[personIndex].keypoints)
+    currentAssist.value = persons[personIndex].assist || null
     drawKeypointsCanvas()
     ElMessage.success('已应用第 ' + (personIndex + 1) + ' 人骨架，可继续微调或补标球拍')
   }
   showPersonSelect.value = false
   predictedPersons.value = []
+}
+
+function acceptAssistSuggestion() {
+  if (!currentAssist.value) return
+  if (currentAssist.value.suggested_phase) form.action_phase = currentAssist.value.suggested_phase
+  if (currentAssist.value.suggested_quality) form.quality_rating = currentAssist.value.suggested_quality
+  assistAccepted.value = true
+  ElMessage.success('已应用预标注建议，请核验后保存')
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -1558,18 +2041,30 @@ function onKeyup(e: KeyboardEvent) {
 
 watch(currentFrame, () => loadAnnotation())
 watch(keypointsList, () => drawKeypointsCanvas(), { deep: true })
+watch(keypointSizePx, (value) => {
+  window.localStorage.setItem('annotation-keypoint-size-px', String(value))
+  drawKeypointsCanvas()
+})
 watch(
   () => [form.box_x, form.box_y, form.box_w, form.box_h, annotationLayerMode.value],
   () => drawKeypointsCanvas(),
 )
 onMounted(async () => {
+  await loadTaxonomy()
   await loadBatchInfo()
   if (isMediaProcessing.value) {
     startMediaStatusPolling()
   }
   if (canAnnotate.value) {
-    await jumpToFirstUnannotatedFrame()
-    await loadAnnotation()
+    const requestedFrame = Number(route.query.frame)
+    const requestedAnnotation = Number(route.query.annotation)
+    if (Number.isInteger(requestedFrame) && requestedFrame >= 1 && requestedFrame <= totalFrames.value) {
+      currentFrame.value = requestedFrame
+      await loadAnnotation(null, Number.isInteger(requestedAnnotation) ? requestedAnnotation : null)
+    } else {
+      await jumpToFirstUnannotatedFrame()
+      await loadAnnotation()
+    }
   }
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('keyup', onKeyup)
@@ -1787,6 +2282,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+  max-width: calc(100% - 36px);
   padding: 6px 8px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
@@ -1930,5 +2427,62 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+.image-timestamp {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 3;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.72);
+  font: 600 12px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+  pointer-events: none;
+}
+.frame-timestamp {
+  color: #606266;
+  font-variant-numeric: tabular-nums;
+}
+.frame-person-records {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.person-layer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 180px;
+  padding: 4px 7px;
+  border: 1px solid #ebeef5;
+  border-radius: 5px;
+  background: #fafafa;
+}
+.point-size-label,
+.point-size-value {
+  font-size: 12px;
+  color: #606266;
+  white-space: nowrap;
+}
+.point-size-slider {
+  width: 92px;
+  margin: 0 5px;
+}
+.assist-panel {
+  margin-top: 12px;
+  width: 100%;
+}
+.assist-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.assist-reasons {
+  margin-bottom: 8px;
+  color: #606266;
+  font-size: 12px;
 }
 </style>

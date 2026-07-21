@@ -1,0 +1,30 @@
+{
+  "version": "2026.07.1",
+  "split_seed": "badminton-release-v1",
+  "group_key_priority": ["subject_code", "match_uuid", "task_batch_uuid"],
+  "splits": {"train": 0.70, "validation": 0.15, "test": 0.15},
+  "release_requirements": {
+    "only_locked_batches": true,
+    "minimum_matches": 3,
+    "minimum_action_classes": 2,
+    "minimum_pose_coverage": 0.80
+  },
+  "agreement": {
+    "minimum_double_annotated_items": 20,
+    "pck_thresholds": [0.05, 0.10]
+  },
+  "active_learning": {
+    "minimum_rounds": 3,
+    "stopping_patience": 2,
+    "minimum_macro_f1_gain_per_hour": 0.002,
+    "confidence_z": 1.96,
+    "weight_update_rate": 0.30,
+    "minimum_component_weight": 0.05,
+    "initial_component_weights": {
+      "motion": 0.40,
+      "entropy": 0.25,
+      "spectral": 0.20,
+      "calculus": 0.15
+    }
+  }
+}

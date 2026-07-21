@@ -1,10 +1,10 @@
-"""Mock action recognizer for badminton action classification.
+"""Conservative deterministic fallback for Label Studio.
 
-Returns random but weighted action predictions.
-Replace with real classifier for production use.
+A single template frame cannot identify stroke type, so the fallback returns
+``other`` instead of fabricating a class. Real pose assistance is served by the
+FastAPI application with entropy/confidence diagnostics.
 """
 
-import random
 from typing import Dict, List
 
 ACTION_TYPES = [
@@ -38,14 +38,13 @@ QUALITY_WEIGHTS = [0.4, 0.4, 0.2]
 
 
 def recognize_action() -> List[Dict]:
-    """Generate mock action classification predictions.
+    """Return a deterministic, explicitly uncertain baseline prediction.
 
     Returns list of dicts in Label Studio Choices result format.
     """
-    actions, weights = zip(*ACTION_TYPES)
-    action = random.choices(actions, weights=weights, k=1)[0]
-    phase = random.choice(ACTION_PHASES)
-    quality = random.choices(QUALITY_RATINGS, weights=QUALITY_WEIGHTS, k=1)[0]
+    action = "other"
+    phase = "preparation"
+    quality = "acceptable"
 
     return [
         {

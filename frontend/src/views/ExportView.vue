@@ -22,6 +22,9 @@
             <el-radio-button value="csv">CSV</el-radio-button>
           </el-radio-group>
         </el-form-item>
+        <el-form-item label="研究级过滤">
+          <el-switch v-model="onlyLocked" active-text="仅导出已锁定任务" inactive-text="包含未锁定任务" @change="loadConfirmedCount" />
+        </el-form-item>
         <el-form-item label="已确认标注数">
           <el-tag type="success" size="large">{{ confirmedCount }} 条</el-tag>
         </el-form-item>
@@ -37,7 +40,18 @@
         <el-descriptions-item label="文件名">{{ exportResult.filename }}</el-descriptions-item>
         <el-descriptions-item label="格式">{{ exportResult.format }}</el-descriptions-item>
         <el-descriptions-item label="记录数">{{ exportResult.record_count }}</el-descriptions-item>
+        <el-descriptions-item label="数据集版本">{{ exportResult.dataset_id }}</el-descriptions-item>
+        <el-descriptions-item label="内容指纹" :span="2"><code>{{ exportResult.dataset_sha256 }}</code></el-descriptions-item>
+        <el-descriptions-item label="研究切分" :span="3">
+          训练 {{ exportResult.split_record_counts?.train || 0 }} / 验证 {{ exportResult.split_record_counts?.validation || 0 }} / 测试 {{ exportResult.split_record_counts?.test || 0 }}
+        </el-descriptions-item>
+        <el-descriptions-item label="论文发布门禁" :span="3">
+          <el-tag :type="exportResult.release_ready ? 'success' : 'danger'">
+            {{ exportResult.release_ready ? '通过' : '未通过' }}
+          </el-tag>
+        </el-descriptions-item>
       </el-descriptions>
+      <el-alert v-for="warning in (exportResult?.warnings || [])" :key="warning" type="warning" :closable="false" :title="warning" style="margin-top: 12px;" />
       <div v-if="exportResult" style="margin-top: 16px;">
         <el-button type="success" :loading="downloading" @click="doDownload">
           下载导出文件
@@ -57,6 +71,7 @@ const projects = ref<any[]>([])
 const selectedProject = ref<number | null>(null)
 const exportFormat = ref<'json' | 'coco' | 'csv'>('json')
 const confirmedCount = ref(0)
+const onlyLocked = ref(true)
 const exporting = ref(false)
 const downloading = ref(false)
 const exportResult = ref<any>(null)
@@ -73,7 +88,7 @@ async function loadConfirmedCount() {
   if (!selectedProject.value) { confirmedCount.value = 0; return }
   try {
     const res = await exportApi.confirmedCount(selectedProject.value)
-    confirmedCount.value = res.data.confirmed_count
+    confirmedCount.value = onlyLocked.value ? res.data.locked_confirmed_count : res.data.confirmed_count
   } catch { confirmedCount.value = 0 }
 }
 
@@ -82,7 +97,7 @@ async function doExport() {
   if (!selectedProject.value) { ElMessage.warning('请选择项目'); return }
   exporting.value = true
   try {
-    const res = await exportApi.export(selectedProject.value, { format: exportFormat.value, only_locked: false })
+    const res = await exportApi.export(selectedProject.value, { format: exportFormat.value, only_locked: onlyLocked.value })
     exportResult.value = res.data
     ElMessage.success('导出完成，可以下载')
   } catch { /* handled */ }

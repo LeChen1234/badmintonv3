@@ -34,6 +34,10 @@
           <el-icon><Download /></el-icon>
           <span>数据导出</span>
         </el-menu-item>
+        <el-menu-item index="/research" v-if="canResearch">
+          <el-icon><DataLine /></el-icon>
+          <span>主动学习闭环</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
@@ -90,7 +94,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/api'
-import { DataAnalysis, User, List, TrendCharts, Finished, Download, FolderOpened, ArrowDown } from '@element-plus/icons-vue'
+import { DataAnalysis, User, List, TrendCharts, Finished, Download, FolderOpened, ArrowDown, DataLine } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance } from 'element-plus'
 
@@ -128,6 +132,7 @@ const roleLabel = computed(() => roleMap[authStore.user?.role || ''] || '未知'
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin')
 const canManageUsers = computed(() => authStore.user?.role === 'super_admin')
 const canManageProjects = computed(() => ['super_admin', 'admin', 'expert'].includes(authStore.user?.role || ''))
+const canResearch = computed(() => ['super_admin', 'admin', 'expert', 'leader'].includes(authStore.user?.role || ''))
 
 function handleUserMenuCommand(command: string) {
   if (command === 'logout') {

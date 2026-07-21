@@ -109,7 +109,8 @@ def _extract_frames_from_video(
                 progress_callback("plain", processed, total)
                 last_progress_tick = now
         if frame_idx % step == 0 and out_idx <= max_frames:
-            out_path = out_dir / f"frame_{out_idx}.jpg"
+            timestamp_ms = int(round(cap.get(cv2.CAP_PROP_POS_MSEC)))
+            out_path = out_dir / f"frame_{out_idx}_t{timestamp_ms}.jpg"
             cv2.imwrite(str(out_path), frame)
             saved.append(out_path)
             out_idx += 1
@@ -130,6 +131,7 @@ def _extract_video_to_paths(
     use_yolo: bool = False,
     motion_percentile: Optional[float] = None,
     progress_callback=None,
+    information_weights=None,
 ) -> List[Path]:
     if use_yolo:
         from app.services.yolo_preprocess_service import extract_and_filter_video
@@ -141,6 +143,7 @@ def _extract_video_to_paths(
             motion_percentile=motion_percentile,
             max_frames=max_frames,
             progress_callback=progress_callback,
+            information_weights=information_weights,
         )
     return _extract_frames_from_video(video_path, out_dir, max_frames=max_frames, progress_callback=progress_callback)
 
@@ -228,12 +231,16 @@ def _promote_processed_frames(batch_id: int, saved_paths: List[Path]) -> List[Tu
     batch_dir = _batch_upload_dir(batch_id)
     _clear_batch_media_files(batch_id)
 
-    entries: List[Tuple[int, str]] = []
+    entries = []
     for i, path in enumerate(saved_paths, start=1):
         ext = path.suffix.lower() or ".jpg"
-        final_path = batch_dir / f"frame_{i}{ext}"
+        timestamp_ms = 0
+        match = __import__("re").search(r"_t(\d+)$", path.stem)
+        if match:
+            timestamp_ms = int(match.group(1))
+        final_path = batch_dir / f"frame_{i}_t{timestamp_ms}{ext}"
         shutil.move(str(path), str(final_path))
-        entries.append((i, f"batch_{batch_id}/{final_path.name}"))
+        entries.append((i, f"batch_{batch_id}/{final_path.name}", timestamp_ms))
 
     cleanup_processing_dir(batch_id)
     return entries
@@ -297,6 +304,15 @@ def process_uploaded_video_in_background(
             last_progress["percent"] = percent
             last_progress["tick"] = now
 
+        from app.services.active_learning_service import current_project_weights
+        information_weights = current_project_weights(db, batch.project_id)
+        batch.selection_metadata = {
+            "algorithm_version": "info-functional-active-v2",
+            "component_weights": information_weights,
+            "motion_percentile": motion_percentile,
+            "active_learning_feedback": True,
+        }
+        db.commit()
         saved_paths = _extract_video_to_paths(
             video_path,
             frames_dir,
@@ -304,6 +320,7 @@ def process_uploaded_video_in_background(
             use_yolo=use_yolo,
             motion_percentile=motion_percentile,
             progress_callback=on_progress,
+            information_weights=information_weights,
         )
         if not saved_paths:
             raise RuntimeError("未提取到任何帧，请检查视频内容或参数设置")
@@ -376,9 +393,11 @@ def add_frames_to_batch(
     existing = db.query(BatchFrame).filter(BatchFrame.task_batch_id == batch.id).all()
     max_idx = max((f.frame_index for f in existing), default=0)
 
-    for i, (frame_index, file_path) in enumerate(frame_entries, start=1):
+    for i, entry in enumerate(frame_entries, start=1):
+        frame_index, file_path, *metadata = entry
+        timestamp_ms = int(metadata[0]) if metadata else 0
         idx = max_idx + i
-        bf = BatchFrame(task_batch_id=batch.id, frame_index=idx, file_path=file_path)
+        bf = BatchFrame(task_batch_id=batch.id, frame_index=idx, file_path=file_path, timestamp_ms=timestamp_ms)
         db.add(bf)
 
     batch.total_frames = max_idx + len(frame_entries)
@@ -393,8 +412,10 @@ def replace_frames_for_batch(
 ) -> int:
     """替换该批次所有帧（先删后加），更新 total_frames。"""
     db.query(BatchFrame).filter(BatchFrame.task_batch_id == batch.id).delete()
-    for i, (_, file_path) in enumerate(frame_entries, start=1):
-        bf = BatchFrame(task_batch_id=batch.id, frame_index=i, file_path=file_path)
+    for i, entry in enumerate(frame_entries, start=1):
+        _, file_path, *metadata = entry
+        timestamp_ms = int(metadata[0]) if metadata else 0
+        bf = BatchFrame(task_batch_id=batch.id, frame_index=i, file_path=file_path, timestamp_ms=timestamp_ms)
         db.add(bf)
     batch.total_frames = len(frame_entries)
     db.commit()

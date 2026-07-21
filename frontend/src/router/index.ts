@@ -21,6 +21,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'progress', name: 'Progress', component: () => import('@/views/ProgressView.vue') },
       { path: 'review', name: 'Review', component: () => import('@/views/ReviewView.vue') },
       { path: 'export', name: 'Export', component: () => import('@/views/ExportView.vue') },
+      { path: 'research', name: 'Research', component: () => import('@/views/ResearchView.vue') },
       { path: 'annotate/:batchId', name: 'Annotate', component: () => import('@/views/AnnotationView.vue') },
     ],
   },

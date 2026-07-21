@@ -1,4 +1,4 @@
-"""initial schema — users, projects, task_batches, review_records, audit_logs
+"""initial schema — core annotation tables
 
 Revision ID: 001
 Revises:
@@ -91,6 +91,37 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "batch_frames",
+        sa.Column("id", sa.Integer, primary_key=True, index=True),
+        sa.Column("task_batch_id", sa.Integer, sa.ForeignKey("task_batches.id"), nullable=False),
+        sa.Column("frame_index", sa.Integer, nullable=False),
+        sa.Column("file_path", sa.String(512), nullable=False),
+    )
+
+    op.create_table(
+        "frame_annotations",
+        sa.Column("id", sa.Integer, primary_key=True, index=True),
+        sa.Column("task_batch_id", sa.Integer, sa.ForeignKey("task_batches.id"), nullable=False),
+        sa.Column("frame_index", sa.Integer, nullable=False),
+        sa.Column("annotator_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("annotator_name", sa.String(128), nullable=False),
+        sa.Column("keypoints", sa.JSON, nullable=True),
+        sa.Column("action_type", sa.String(64), nullable=True),
+        sa.Column("action_phase", sa.String(64), nullable=True),
+        sa.Column("quality_rating", sa.String(64), nullable=True),
+        sa.Column("notes", sa.Text, nullable=True),
+        sa.Column("is_ml_generated", sa.Boolean, nullable=False, server_default=sa.false()),
+        sa.Column(
+            "status",
+            sa.Enum("draft", "submitted", "confirmed", "rejected", name="annotationstatus"),
+            nullable=False,
+            server_default="draft",
+        ),
+        sa.Column("created_at", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime, server_default=sa.func.now()),
+    )
+
+    op.create_table(
         "audit_logs",
         sa.Column("id", sa.Integer, primary_key=True, index=True),
         sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False),
@@ -102,6 +133,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("audit_logs")
+    op.drop_table("frame_annotations")
+    op.drop_table("batch_frames")
     op.drop_table("review_records")
     op.drop_table("task_batches")
     op.drop_table("projects")
@@ -110,3 +143,4 @@ def downgrade() -> None:
     sa.Enum(name="taskstatus").drop(op.get_bind(), checkfirst=True)
     sa.Enum(name="reviewlevel").drop(op.get_bind(), checkfirst=True)
     sa.Enum(name="reviewresult").drop(op.get_bind(), checkfirst=True)
+    sa.Enum(name="annotationstatus").drop(op.get_bind(), checkfirst=True)

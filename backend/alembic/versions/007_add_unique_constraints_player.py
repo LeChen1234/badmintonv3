@@ -35,31 +35,21 @@ def upgrade() -> None:
     op.create_index("ix_players_task_batch_id", "players", ["task_batch_id"])
 
     # Add selected_player_id to frame_annotations
-    op.add_column(
-        "frame_annotations",
-        sa.Column("selected_player_id", sa.Integer(), nullable=True),
-    )
-    op.create_foreign_key(
-        "fk_frame_annotations_selected_player_id_players",
-        "frame_annotations",
-        "players",
-        ["selected_player_id"],
-        ["id"],
-    )
+    with op.batch_alter_table("frame_annotations") as batch_op:
+        batch_op.add_column(sa.Column("selected_player_id", sa.Integer(), nullable=True))
+        batch_op.create_foreign_key(
+            "fk_frame_annotations_selected_player_id_players",
+            "players", ["selected_player_id"], ["id"],
+        )
+        batch_op.create_unique_constraint(
+            "ux_frame_annotations_task_batch_frame_annotator",
+            ["task_batch_id", "frame_index", "annotator_id"],
+        )
 
-    # Add composite unique index for batch_frames
-    op.create_unique_constraint(
-        "ux_batch_frames_task_batch_frame",
-        "batch_frames",
-        ["task_batch_id", "frame_index"],
-    )
-
-    # Add composite unique index for frame_annotations (per annotator)
-    op.create_unique_constraint(
-        "ux_frame_annotations_task_batch_frame_annotator",
-        "frame_annotations",
-        ["task_batch_id", "frame_index", "annotator_id"],
-    )
+    with op.batch_alter_table("batch_frames") as batch_op:
+        batch_op.create_unique_constraint(
+            "ux_batch_frames_task_batch_frame", ["task_batch_id", "frame_index"]
+        )
 
     # Add composite index for fast lookups
     op.create_index(

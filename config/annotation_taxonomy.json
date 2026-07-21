@@ -1,0 +1,28 @@
+{
+  "version": "2026.07.1",
+  "actions": [
+    {"value": "smash", "label": "杀球 (Smash)"},
+    {"value": "clear", "label": "高远球 (Clear)"},
+    {"value": "drop_shot", "label": "吊球 (Drop Shot)"},
+    {"value": "net_shot", "label": "搓球 (Net Shot)"},
+    {"value": "lift", "label": "挑球 (Lift)"},
+    {"value": "push", "label": "推球 (Push)"},
+    {"value": "rush", "label": "扑球 (Rush)"},
+    {"value": "drive", "label": "抽球 (Drive)"},
+    {"value": "serve", "label": "发球 (Serve)"},
+    {"value": "receive", "label": "接发球 (Receive)"},
+    {"value": "other", "label": "其他 (Other)"}
+  ],
+  "phases": [
+    {"value": "preparation", "label": "准备 (Preparation)"},
+    {"value": "backswing", "label": "引拍 (Backswing)"},
+    {"value": "contact", "label": "击球瞬间 (Contact)"},
+    {"value": "follow_through", "label": "随挥 (Follow-through)"},
+    {"value": "recovery", "label": "回位 (Recovery)"}
+  ],
+  "qualities": [
+    {"value": "standard", "label": "标准"},
+    {"value": "acceptable", "label": "可接受"},
+    {"value": "needs_correction", "label": "需纠正"}
+  ]
+}

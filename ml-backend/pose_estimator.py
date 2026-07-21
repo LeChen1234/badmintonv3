@@ -1,10 +1,10 @@
-"""Mock pose estimator for badminton skeleton keypoints.
+"""Deterministic fallback skeleton for Label Studio connectivity tests.
 
-Returns anatomically plausible random keypoint coordinates.
-Replace with HRNet/ViTPose integration for production use.
+The real annotation platform uses backend/app/services/pose_service.py. This
+fallback must not inject random labels into a dataset when no vision runtime is
+available.
 """
 
-import random
 from typing import Dict, List, Tuple
 
 KEYPOINT_NAMES = [
@@ -49,7 +49,7 @@ SKELETON_TEMPLATE: Dict[str, Tuple[float, float]] = {
 def estimate_keypoints(
     image_width: int = 640,
     image_height: int = 480,
-    jitter: float = 3.0,
+    jitter: float = 0.0,
 ) -> List[Dict]:
     """Generate mock keypoint predictions with anatomical jitter.
 
@@ -59,8 +59,8 @@ def estimate_keypoints(
     results = []
     for name in KEYPOINT_NAMES:
         base_x, base_y = SKELETON_TEMPLATE[name]
-        x = max(0.0, min(100.0, base_x + random.gauss(0, jitter)))
-        y = max(0.0, min(100.0, base_y + random.gauss(0, jitter)))
+        x = max(0.0, min(100.0, base_x))
+        y = max(0.0, min(100.0, base_y))
 
         results.append({
             "original_width": image_width,

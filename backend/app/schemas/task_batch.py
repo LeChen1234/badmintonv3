@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -11,6 +11,7 @@ class TaskBatchCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=256)
     action_category: Optional[str] = None
     assigned_to: Optional[int] = None
+    secondary_assigned_to: Optional[int] = None
     frame_start: Optional[int] = None
     frame_end: Optional[int] = None
     total_frames: int = 0
@@ -21,6 +22,7 @@ class TaskBatchUpdate(BaseModel):
     name: Optional[str] = None
     action_category: Optional[str] = None
     assigned_to: Optional[int] = None
+    secondary_assigned_to: Optional[int] = None
     deadline: Optional[datetime] = None
 
 
@@ -28,6 +30,7 @@ class TaskPlayerInfo(BaseModel):
     id: Optional[int] = None
     uuid: Optional[str] = Field(default=None, max_length=36)
     name: Optional[str] = Field(default=None, max_length=128)
+    subject_code: Optional[str] = Field(default=None, min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     gender: Optional[str] = Field(default=None, max_length=16)
     age: Optional[int] = Field(default=None, ge=1, le=99)
     height_cm: Optional[int] = Field(default=None, ge=80, le=260)
@@ -36,6 +39,7 @@ class TaskPlayerInfo(BaseModel):
 class TaskBatchMetadataUpdate(BaseModel):
     match_date: Optional[date] = Field(default=None)
     match_name: Optional[str] = Field(default=None, max_length=256)
+    match_format: Optional[str] = Field(default=None, pattern="^(singles|doubles)$")
     players: Optional[List[TaskPlayerInfo]] = None
 
 
@@ -46,6 +50,8 @@ class TaskBatchOut(BaseModel):
     name: str
     action_category: Optional[str] = None
     assigned_to: Optional[int] = None
+    secondary_assigned_to: Optional[int] = None
+    secondary_assignee_name: Optional[str] = None
     assignee_name: Optional[str] = None
     status: TaskStatus
     frame_start: Optional[int] = None
@@ -59,9 +65,14 @@ class TaskBatchOut(BaseModel):
     match_uuid: Optional[str] = None
     match_date: Optional[date] = None
     match_name: Optional[str] = None
+    match_format: Optional[str] = None
     players: List[TaskPlayerInfo] = Field(default_factory=list)
     metadata_confirmed: bool = False
     metadata_confirmed_at: Optional[datetime] = None
+    selection_metadata: Optional[Any] = None
+    video_id: Optional[str] = None
+    video_sha256: Optional[str] = None
+    video_filename: Optional[str] = None
     deadline: Optional[datetime] = None
     created_at: datetime
 
@@ -75,5 +86,6 @@ class TaskBatchMediaProcessOut(BaseModel):
     media_process_started_at: Optional[datetime] = None
     media_process_finished_at: Optional[datetime] = None
     total_frames: int
+    video_id: Optional[str] = None
 
     model_config = {"from_attributes": True}

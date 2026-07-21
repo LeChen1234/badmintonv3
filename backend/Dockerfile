@@ -20,8 +20,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip -i https://mirrors.tencent.com/pypi/simple && pip install -r requirements.txt -i https://mirrors.tencent.com/pypi/simple
 
 COPY backend/ ./
+COPY config/ /app/config/
 RUN mkdir -p /app/data/models /app/data/uploads /app/data/exports
 COPY data/models/yolov8n-pose.pt /app/data/models/yolov8n-pose.pt
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]

@@ -6,5 +6,8 @@ from app.models.audit_log import AuditLog
 from app.models.annotation import FrameAnnotation
 from app.models.batch_frame import BatchFrame
 from app.models.player import Player
+from app.models.annotation_revision import AnnotationRevision
+from app.models.adjudication_record import AdjudicationRecord
+from app.models.active_learning_round import ActiveLearningRound
 
-__all__ = ["User", "Project", "TaskBatch", "ReviewRecord", "AuditLog", "FrameAnnotation", "BatchFrame", "Player"]
+__all__ = ["User", "Project", "TaskBatch", "ReviewRecord", "AuditLog", "FrameAnnotation", "BatchFrame", "Player", "AnnotationRevision", "AdjudicationRecord", "ActiveLearningRound"]

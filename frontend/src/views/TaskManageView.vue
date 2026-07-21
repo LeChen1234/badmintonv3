@@ -16,7 +16,11 @@
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="name" label="批次名称" />
         <el-table-column prop="action_category" label="动作类别" width="100" />
-        <el-table-column prop="assignee_name" label="负责人" width="100" />
+        <el-table-column label="标注员" width="170">
+          <template #default="{ row }">
+            {{ row.assignee_name || '-' }}<span v-if="row.secondary_assignee_name"> / {{ row.secondary_assignee_name }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="120">
           <template #default="{ row }">
             <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
@@ -31,7 +35,7 @@
           <template #default="{ row }">
             <el-button size="small" @click="openAssign(row)">分配</el-button>
             <el-button size="small" type="warning" @click="triggerMl(row.id)"
-              :disabled="!mlEnabled" :title="mlEnabled ? 'ML 初标' : '大模型标注未启用'">
+              :disabled="!mlEnabled" :title="mlEnabled ? '模型预标注' : '模型预标注服务未启用'">
               ML 初标(可选)
             </el-button>
             <el-button size="small" type="success" @click="goAnnotate(row)">标注</el-button>
@@ -79,6 +83,9 @@
       <el-select v-model="assignUserId" placeholder="选择标注员" style="width: 100%;">
         <el-option v-for="u in students" :key="u.id" :label="u.display_name" :value="u.id" />
       </el-select>
+      <el-select v-model="secondaryAssignUserId" placeholder="独立复标员（可选）" clearable style="width: 100%; margin-top: 12px;">
+        <el-option v-for="u in students" :key="u.id" :label="u.display_name" :value="u.id" :disabled="u.id === assignUserId" />
+      </el-select>
       <template #footer>
         <el-button @click="showAssignDialog = false">取消</el-button>
         <el-button type="primary" @click="doAssign">确定</el-button>
@@ -109,6 +116,7 @@ const showCreateDialog = ref(false)
 const showAssignDialog = ref(false)
 const assignBatchId = ref(0)
 const assignUserId = ref<number | null>(null)
+const secondaryAssignUserId = ref<number | null>(null)
 
 const form = reactive({
   project_id: null as number | null,
@@ -165,6 +173,7 @@ async function createBatch() {
 function openAssign(row: any) {
   assignBatchId.value = row.id
   assignUserId.value = row.assigned_to
+  secondaryAssignUserId.value = row.secondary_assigned_to
   showAssignDialog.value = true
 }
 
@@ -172,6 +181,7 @@ async function doAssign() {
   if (!assignUserId.value) return
   try {
     await taskApi.assign(assignBatchId.value, assignUserId.value)
+    await taskApi.update(assignBatchId.value, { secondary_assigned_to: secondaryAssignUserId.value })
     ElMessage.success('分配成功')
     showAssignDialog.value = false
     loadTasks()
@@ -201,7 +211,6 @@ async function deleteBatch(row: any) {
     ElMessage.success('删除成功')
     await loadTasks()
   } catch {
-    // 取消删除或请求失败时，统一不额外提示
   }
 }
 

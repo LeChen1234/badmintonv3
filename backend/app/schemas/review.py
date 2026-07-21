@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.review_record import ReviewLevel, ReviewResult
 
@@ -28,3 +28,9 @@ class ReviewRecordOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AdjudicationRequest(BaseModel):
+    winner_annotation_id: int
+    comment: Optional[str] = None
+    overrides: Dict[str, Any] = Field(default_factory=dict)

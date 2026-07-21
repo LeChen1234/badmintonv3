@@ -2,7 +2,7 @@
 
 from uuid import uuid4
 
-from sqlalchemy import Integer, String, ForeignKey
+from sqlalchemy import Integer, BigInteger, String, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -17,5 +17,6 @@ class BatchFrame(Base):
     task_batch_id: Mapped[int] = mapped_column(Integer, ForeignKey("task_batches.id"), nullable=False, index=True)
     frame_index: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-based
     file_path: Mapped[str] = mapped_column(String(512), nullable=False)  # 相对 UPLOAD_DIR 的路径
+    timestamp_ms: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
     task_batch = relationship("TaskBatch", back_populates="batch_frames")

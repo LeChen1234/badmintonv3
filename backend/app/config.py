@@ -3,12 +3,14 @@ from pathlib import Path
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 from typing import List
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class Settings(BaseSettings):
+    ENVIRONMENT: str = "development"
     SECRET_KEY: str = Field(
         default="dev-secret-key-change-in-production",
         validation_alias=AliasChoices("BACKEND_SECRET_KEY", "SECRET_KEY"),
@@ -42,6 +44,29 @@ class Settings(BaseSettings):
     BACKUP_KEEP_COUNT: int = 24
 
     ALLOW_PUBLIC_REGISTER: bool = True
+    ANNOTATION_TAXONOMY_PATH: str = str(PROJECT_ROOT / "config" / "annotation_taxonomy.json")
+    RESEARCH_PROTOCOL_PATH: str = str(PROJECT_ROOT / "config" / "research_protocol.json")
+    BOOTSTRAP_ADMIN_USERNAME: str = "admin"
+    BOOTSTRAP_ADMIN_PASSWORD: str = ""
+
+    # Hybrid multi-person pose assistance. All values can be overridden by .env.
+    POSE_YOLO_MODEL: str = "yolov8n-pose.pt"
+    POSE_YOLO_CONFIDENCE: float = 0.12
+    POSE_YOLO_IOU: float = 0.55
+    POSE_YOLO_IMAGE_SIZE: int = 1280
+    POSE_MAX_PERSONS: int = 20
+    POSE_ENABLE_TILING: bool = True
+    POSE_TILE_MIN_SIDE: int = 1080
+    POSE_MIN_VISIBLE_JOINTS: int = 5
+
+    @model_validator(mode="after")
+    def validate_production_security(self):
+        if self.ENVIRONMENT.lower() == "production":
+            if self.SECRET_KEY == "dev-secret-key-change-in-production" or len(self.SECRET_KEY) < 32:
+                raise ValueError("Production requires BACKEND_SECRET_KEY with at least 32 characters")
+            if "*" in self.cors_origin_list:
+                raise ValueError("Production CORS origins must be explicit")
+        return self
 
     @property
     def database_url(self) -> str:

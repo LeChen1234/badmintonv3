@@ -16,6 +16,7 @@ class Player(Base):
     uuid: Mapped[str] = mapped_column(String(36), unique=True, index=True, nullable=False, default=lambda: str(uuid4()))
     task_batch_id: Mapped[int] = mapped_column(Integer, ForeignKey("task_batches.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    subject_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     gender: Mapped[str | None] = mapped_column(String(16), nullable=True)
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height_cm: Mapped[int | None] = mapped_column(Integer, nullable=True)

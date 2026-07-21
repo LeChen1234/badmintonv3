@@ -8,6 +8,7 @@
 import logging
 import math
 import shutil
+from itertools import permutations
 from pathlib import Path
 from time import monotonic
 from typing import Callable, List, Optional, Tuple
@@ -15,6 +16,7 @@ from typing import Callable, List, Optional, Tuple
 import cv2
 
 from app.config import settings
+from app.services.information_selection_service import diverse_indices, score_motion_sequence
 
 logger = logging.getLogger(__name__)
 
@@ -32,23 +34,91 @@ def _find_yolo_model() -> Optional[Path]:
     return None
 
 
-def _centroid_x(kpts_xy) -> float:
-    """用 5-16 号关节点的非零 x 均值作为人物中心，用于左右排序。"""
-    xs = [float(k[0]) for k in kpts_xy[5:17] if float(k[0]) > 0]
-    return sum(xs) / len(xs) if xs else 0.0
+def _visible_body_points(kpts_xy) -> List[Tuple[float, float]]:
+    """返回有效身体关键点；YOLO 以 (0, 0) 表示不可见点。"""
+    return [
+        (float(kpts_xy[i][0]), float(kpts_xy[i][1]))
+        for i in _BODY_KPT_INDICES
+        if float(kpts_xy[i][0]) > 0 and float(kpts_xy[i][1]) > 0
+    ]
+
+
+def _person_geometry(kpts_xy) -> Optional[Tuple[float, float, float]]:
+    """返回人物中心和尺度（身体关键点包围盒对角线）。"""
+    points = _visible_body_points(kpts_xy)
+    if len(points) < 2:
+        return None
+    xs, ys = zip(*points)
+    scale = math.hypot(max(xs) - min(xs), max(ys) - min(ys))
+    if scale <= 1e-6:
+        return None
+    return sum(xs) / len(xs), sum(ys) / len(ys), scale
 
 
 def _motion_score_between(prev_kpts, curr_kpts) -> Tuple[float, int]:
-    """计算两帧同一人之间的关节点欧氏距离之和，返回 (总距离, 有效关节数)。"""
+    """计算尺度归一化位移和，避免分辨率和拍摄距离改变阈值含义。"""
+    prev_geometry = _person_geometry(prev_kpts)
+    curr_geometry = _person_geometry(curr_kpts)
+    if prev_geometry is None or curr_geometry is None:
+        return 0.0, 0
+    scale = (prev_geometry[2] + curr_geometry[2]) / 2.0
     total = 0.0
     count = 0
     for idx in _BODY_KPT_INDICES:
         px, py = float(prev_kpts[idx][0]), float(prev_kpts[idx][1])
         cx, cy = float(curr_kpts[idx][0]), float(curr_kpts[idx][1])
         if px > 0 and py > 0 and cx > 0 and cy > 0:
-            total += math.hypot(cx - px, cy - py)
+            total += math.hypot(cx - px, cy - py) / scale
             count += 1
     return total, count
+
+
+def _match_people(prev_people, curr_people) -> List[Tuple[object, object]]:
+    """按归一化中心距离做一对一匹配，而不是依赖容易交换的左右次序。"""
+    if not prev_people or not curr_people:
+        return []
+    if len(prev_people) <= len(curr_people):
+        left, right, swapped = prev_people, curr_people, False
+    else:
+        left, right, swapped = curr_people, prev_people, True
+
+    def pair_cost(a, b) -> Optional[float]:
+        ga, gb = _person_geometry(a), _person_geometry(b)
+        if ga is None or gb is None:
+            return None
+        return math.hypot(ga[0] - gb[0], ga[1] - gb[1]) / ((ga[2] + gb[2]) / 2.0)
+
+    if len(right) > 6:
+        candidates = []
+        for i, a in enumerate(left):
+            for j, b in enumerate(right):
+                cost = pair_cost(a, b)
+                if cost is not None:
+                    candidates.append((cost, i, j))
+        used_left, used_right, pairs = set(), set(), []
+        for _, i, j in sorted(candidates):
+            if i not in used_left and j not in used_right:
+                pairs.append((left[i], right[j]))
+                used_left.add(i)
+                used_right.add(j)
+        return [(b, a) for a, b in pairs] if swapped else pairs
+
+    best = None
+    for candidate in permutations(range(len(right)), len(left)):
+        cost = 0.0
+        valid = True
+        for i, j in enumerate(candidate):
+            current_cost = pair_cost(left[i], right[j])
+            if current_cost is None:
+                valid = False
+                break
+            cost += current_cost
+        if valid and (best is None or cost < best[0]):
+            best = (cost, candidate)
+    if best is None:
+        return []
+    pairs = [(left[i], right[j]) for i, j in enumerate(best[1])]
+    return [(b, a) for a, b in pairs] if swapped else pairs
 
 
 def _percentile(values: List[float], q: float) -> float:
@@ -78,6 +148,7 @@ def extract_and_filter_video(
     min_shared_joints: int = 8,
     max_frames: int = 2000,
     progress_callback: Optional[ProgressCallback] = None,
+    information_weights: Optional[dict] = None,
 ) -> List[Path]:
     """从视频抽帧，写入 out_dir，返回保存路径列表。
 
@@ -92,7 +163,6 @@ def extract_and_filter_video(
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 无需过滤 → 直接均匀抽帧，无需 YOLO
     if motion_percentile is None:
         return _plain_extract(video_path, out_dir, target_fps, max_frames, progress_callback=progress_callback)
 
@@ -136,8 +206,8 @@ def extract_and_filter_video(
         shutil.rmtree(candidate_dir, ignore_errors=True)
         candidate_dir.mkdir(parents=True, exist_ok=True)
 
-        candidate_paths_and_scores: List[Tuple[Path, float]] = []
-        prev_valid_kpts: Optional[list] = None  # 上一有效帧的 kpts 列表（已按 x 排序）
+        candidate_paths_and_scores: List[Tuple[Path, float, int]] = []
+        prev_valid_kpts: Optional[list] = None
         frame_count = 0
         candidate_idx = 0
         next_process_time = 0.0
@@ -162,30 +232,30 @@ def extract_and_filter_video(
                 kpts_list: list = []
                 if results[0].keypoints is not None and len(results[0].keypoints) > 0:
                     raw = results[0].keypoints.xy.cpu().numpy()
-                    # 按左右顺序排列，保证相邻帧配对稳定
-                    kpts_list = sorted(raw, key=_centroid_x)
+                    kpts_list = list(raw)
 
                 people_count = len(kpts_list)
                 if people_count >= min_people:
                     if prev_valid_kpts is None:
-                        # 第一个有效帧：仅作基准，不写出（没有前帧可比较）
                         prev_valid_kpts = kpts_list
                     else:
-                        pair_count = min(len(prev_valid_kpts), len(kpts_list))
                         total_score = 0.0
                         total_joints = 0
-                        for pi in range(pair_count):
-                            d, cnt = _motion_score_between(prev_valid_kpts[pi], kpts_list[pi])
+                        for prev_person, curr_person in _match_people(prev_valid_kpts, kpts_list):
+                            d, cnt = _motion_score_between(prev_person, curr_person)
                             total_score += d
                             total_joints += cnt
 
                         if total_joints >= min_shared_joints:
-                            cand_path = candidate_dir / f"candidate_{candidate_idx:08d}.jpg"
+                            timestamp_ms = int(round(current_time * 1000))
+                            cand_path = candidate_dir / f"candidate_{candidate_idx:08d}_t{timestamp_ms}.jpg"
                             cv2.imwrite(str(cand_path), frame)
-                            candidate_paths_and_scores.append((cand_path, total_score))
+                            candidate_paths_and_scores.append((cand_path, total_score / total_joints, timestamp_ms))
                             candidate_idx += 1
 
                         prev_valid_kpts = kpts_list
+                else:
+                    prev_valid_kpts = None
 
                 next_process_time += time_interval
             frame_count += 1
@@ -196,23 +266,26 @@ def extract_and_filter_video(
         if not candidate_paths_and_scores:
             return []
 
-        threshold = _percentile(
-            [score for _, score in candidate_paths_and_scores],
-            motion_percentile,
-        )
+        raw_motion = [score for _, score, _ in candidate_paths_and_scores]
+        information_rows = score_motion_sequence(raw_motion, weights=information_weights)
+        information_scores = [row["score"] for row in information_rows]
+        threshold = _percentile(information_scores, motion_percentile)
+        selected_indices = set(diverse_indices(information_scores, threshold, min_gap=2))
         logger.info(
-            "yolo_preprocess: 动态阈值计算完成 percentile=P%.1f threshold=%.2f candidates=%d",
+            "yolo_preprocess: frame selection completed percentile=P%.1f threshold=%.3f candidates=%d selected=%d",
             motion_percentile,
             threshold,
             len(candidate_paths_and_scores),
+            len(selected_indices),
         )
 
-        for current_idx, (cand_path, score) in enumerate(candidate_paths_and_scores, start=1):
+        for zero_index, (cand_path, _raw_score, timestamp_ms) in enumerate(candidate_paths_and_scores):
+            current_idx = zero_index + 1
             if progress_callback:
                 progress_callback("filter", current_idx, len(candidate_paths_and_scores))
-            if score < threshold:
+            if zero_index not in selected_indices:
                 continue
-            out_path = out_dir / f"frame_{len(saved):08d}.jpg"
+            out_path = out_dir / f"frame_{len(saved):08d}_t{timestamp_ms}.jpg"
             shutil.move(str(cand_path), str(out_path))
             saved.append(out_path)
             if len(saved) >= max_frames:
@@ -267,7 +340,8 @@ def _plain_extract(
 
             current_time = frame_count / original_fps
             if current_time >= next_process_time:
-                out_path = out_dir / f"frame_{out_idx:08d}.jpg"
+                timestamp_ms = int(round(current_time * 1000))
+                out_path = out_dir / f"frame_{out_idx:08d}_t{timestamp_ms}.jpg"
                 cv2.imwrite(str(out_path), frame)
                 saved.append(out_path)
                 out_idx += 1

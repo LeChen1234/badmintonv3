@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.models.task_batch import MediaProcessStatus, TaskBatch, TaskStatus
 from app.models.user import User
@@ -61,6 +62,7 @@ def create_task_batch(db: Session, data: TaskBatchCreate, creator: User) -> Task
         name=data.name,
         action_category=data.action_category,
         assigned_to=data.assigned_to,
+        secondary_assigned_to=data.secondary_assigned_to,
         frame_start=data.frame_start,
         frame_end=data.frame_end,
         total_frames=data.total_frames,
@@ -89,7 +91,7 @@ def list_task_batches(
     if project_id is not None:
         q = q.filter(TaskBatch.project_id == project_id)
     if assigned_to is not None:
-        q = q.filter(TaskBatch.assigned_to == assigned_to)
+        q = q.filter(or_(TaskBatch.assigned_to == assigned_to, TaskBatch.secondary_assigned_to == assigned_to))
     if status is not None:
         q = q.filter(TaskBatch.status == status)
     return q.order_by(TaskBatch.created_at.desc()).offset(skip).limit(limit).all()
@@ -145,6 +147,5 @@ def delete_task_batch(db: Session, batch: TaskBatch) -> None:
     db.delete(batch)
     db.commit()
 
-    # 数据库提交成功后再清理磁盘，减少数据不一致风险。
     if upload_dir.exists():
         shutil.rmtree(upload_dir, ignore_errors=True)
