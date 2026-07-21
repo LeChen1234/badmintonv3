@@ -8,6 +8,8 @@ MediaPipe refines each crop. Results are de-duplicated and mapped to the project
 from __future__ import annotations
 
 import logging
+import math
+import statistics
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -113,11 +115,47 @@ def _iou(a, b):
     return inter / max(aa + bb - inter, 1e-6)
 
 
+def _intersection_over_smaller(a, b):
+    """Return how much of the smaller box is covered by the intersection."""
+    x1, y1, x2, y2 = max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])
+    intersection = max(0, x2 - x1) * max(0, y2 - y1)
+    area_a = max(0, a[2] - a[0]) * max(0, a[3] - a[1])
+    area_b = max(0, b[2] - b[0]) * max(0, b[3] - b[1])
+    return intersection / max(min(area_a, area_b), 1e-6)
+
+
+def _normalized_pose_distance(a, b):
+    """Median matching-joint distance normalized by the smaller box diagonal."""
+    distances = []
+    conf_a, conf_b = a.get("conf"), b.get("conf")
+    for index, (point_a, point_b) in enumerate(zip(a["xy"], b["xy"])):
+        if conf_a is not None and float(conf_a[index]) < 0.15:
+            continue
+        if conf_b is not None and float(conf_b[index]) < 0.15:
+            continue
+        distances.append(math.hypot(float(point_a[0]) - float(point_b[0]), float(point_a[1]) - float(point_b[1])))
+    if len(distances) < settings.POSE_MIN_VISIBLE_JOINTS:
+        return float("inf")
+    box_a, box_b = a["bbox_px"], b["bbox_px"]
+    diagonal = min(math.hypot(box_a[2] - box_a[0], box_a[3] - box_a[1]),
+                   math.hypot(box_b[2] - box_b[0], box_b[3] - box_b[1]))
+    return statistics.median(distances) / max(diagonal, 1e-6)
+
+
+def _same_person(a, b):
+    if _iou(a["bbox_px"], b["bbox_px"]) >= settings.POSE_YOLO_IOU:
+        return True
+    return (
+        _intersection_over_smaller(a["bbox_px"], b["bbox_px"]) >= settings.POSE_DEDUP_CONTAINMENT
+        and _normalized_pose_distance(a, b) <= settings.POSE_DEDUP_KEYPOINT_DISTANCE
+    )
+
+
 def _nms(candidates):
     candidates = sorted(candidates, key=lambda c: c["detection_confidence"], reverse=True)
     kept = []
     for candidate in candidates:
-        if all(_iou(candidate["bbox_px"], old["bbox_px"]) < settings.POSE_YOLO_IOU for old in kept):
+        if all(not _same_person(candidate, old) for old in kept):
             kept.append(candidate)
     return kept[: settings.POSE_MAX_PERSONS]
 
@@ -150,6 +188,8 @@ def predict_persons_detailed_from_image_path(
                 for y in sorted(set((0, height - tile_h))):
                     candidates += _infer_region(model, image[y:y+tile_h, x:x+tile_w], x, y, width, height, "yolo-tile")
         candidates = _nms(candidates)
+        if bbox_percent is not None:
+            candidates = candidates[:settings.POSE_BOX_MAX_PERSONS]
     except Exception as exc:
         logger.exception("YOLO multi-person pose failed: %s", exc)
         raise PoseBackendUnavailable(

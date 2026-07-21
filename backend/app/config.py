@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     POSE_ENABLE_TILING: bool = True
     POSE_TILE_MIN_SIDE: int = 1080
     POSE_MIN_VISIBLE_JOINTS: int = 5
+    POSE_DEDUP_CONTAINMENT: float = 0.72
+    POSE_DEDUP_KEYPOINT_DISTANCE: float = 0.10
+    POSE_BOX_MAX_PERSONS: int = 1
 
     @model_validator(mode="after")
     def validate_production_security(self):
