@@ -38,6 +38,10 @@
           <el-icon><DataLine /></el-icon>
           <span>主动学习闭环</span>
         </el-menu-item>
+        <el-menu-item index="/guide">
+          <el-icon><Reading /></el-icon>
+          <span>新手使用指南</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
@@ -94,7 +98,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/api'
-import { DataAnalysis, User, List, TrendCharts, Finished, Download, FolderOpened, ArrowDown, DataLine } from '@element-plus/icons-vue'
+import { DataAnalysis, User, List, TrendCharts, Finished, Download, FolderOpened, ArrowDown, DataLine, Reading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance } from 'element-plus'
 
