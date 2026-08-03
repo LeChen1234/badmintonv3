@@ -1,7 +1,7 @@
 {
   "version": "2026.07.1",
   "split_seed": "badminton-release-v1",
-  "group_key_priority": ["subject_code", "match_uuid", "task_batch_uuid"],
+  "group_key_priority": ["subject_code", "bridge_view_id", "capture_session_id", "repetition_group_id", "match_uuid", "task_batch_uuid"],
   "splits": {"train": 0.70, "validation": 0.15, "test": 0.15},
   "release_requirements": {
     "only_locked_batches": true,

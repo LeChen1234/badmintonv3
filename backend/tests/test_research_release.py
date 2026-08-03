@@ -40,6 +40,21 @@ class ResearchReleaseTests(unittest.TestCase):
         released, _ = build_release(records, "project", protocol)
         self.assertEqual(len({record["research_split"] for record in released}), 1)
 
+    def test_bridge_views_stay_in_one_split_without_subject_code(self):
+        protocol = dict(PROTOCOL, group_key_priority=["bridge_view_id", "task_batch_uuid"])
+        records = [
+            {"annotation_id": 1, "bridge_view_id": "SESSION-1:BRIDGE-1", "task_batch_uuid": "A", "action_type": "smash"},
+            {"annotation_id": 2, "bridge_view_id": "SESSION-1:BRIDGE-1", "task_batch_uuid": "B", "action_type": "smash"},
+        ]
+        released, _ = build_release(records, "project", protocol)
+        self.assertEqual(len({record["research_split"] for record in released}), 1)
+
+    def test_temporal_release_can_disable_pose_gate(self):
+        records = [{"annotation_id": 1, "match_uuid": "M1", "action_type": "smash"}]
+        _, manifest = build_release(records, "project", PROTOCOL, require_pose_coverage=False)
+        self.assertTrue(manifest["quality_gates"]["minimum_pose_coverage"])
+        self.assertFalse(manifest["pose_coverage_applicable"])
+
 
 if __name__ == "__main__":
     unittest.main()

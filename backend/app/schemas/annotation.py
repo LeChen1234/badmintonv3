@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -7,21 +7,21 @@ from app.models.annotation import AnnotationStatus
 
 
 class KeypointData(BaseModel):
-    name: str
-    x: float
-    y: float
-    visibility: int = 2
+    name: str = Field(min_length=1, max_length=64)
+    x: float = Field(ge=0, le=100)
+    y: float = Field(ge=0, le=100)
+    visibility: int = Field(default=2, ge=0, le=2)
 
 
 class ContactPoint(BaseModel):
-    x: Optional[float] = None
-    y: Optional[float] = None
-    visibility: int = 0
+    x: Optional[float] = Field(default=None, ge=0, le=100)
+    y: Optional[float] = Field(default=None, ge=0, le=100)
+    visibility: int = Field(default=0, ge=0, le=2)
 
 
 class ContactUV(BaseModel):
-    u: Optional[float] = None
-    v: Optional[float] = None
+    u: Optional[float] = Field(default=None, ge=0, le=1)
+    v: Optional[float] = Field(default=None, ge=0, le=1)
 
 
 class ContactAnnotation(BaseModel):
@@ -31,20 +31,25 @@ class ContactAnnotation(BaseModel):
     face_corners: Optional[List[KeypointData]] = None
     contact_point: Optional[ContactPoint] = None
     contact_uv: Optional[ContactUV] = None
-    contact_zone: Optional[str] = None
-    face_attitude: Optional[str] = None
-    support_foot: Optional[str] = None
-    error_attributes: Optional[List[str]] = None
+    contact_zone: Optional[Literal["sweet", "top", "bottom", "head_side", "throat", "unknown"]] = None
+    face_attitude: Optional[Literal["open", "square", "closed", "unknown"]] = None
+    support_foot: Optional[Literal["left", "right", "both", "unknown"]] = None
+    error_attributes: Optional[List[
+        Literal[
+            "off_center_contact", "open_face", "closed_face", "late_timing",
+            "early_timing", "unstable_base", "poor_grip", "other",
+        ]
+    ]] = None
 
 
 class FrameAnnotationCreate(BaseModel):
     task_batch_id: int
     frame_index: int
     keypoints: Optional[List[KeypointData]] = None
-    box_x: Optional[float] = None
-    box_y: Optional[float] = None
-    box_w: Optional[float] = None
-    box_h: Optional[float] = None
+    box_x: Optional[float] = Field(default=None, ge=0, le=100)
+    box_y: Optional[float] = Field(default=None, ge=0, le=100)
+    box_w: Optional[float] = Field(default=None, gt=0, le=100)
+    box_h: Optional[float] = Field(default=None, gt=0, le=100)
     selected_player_id: Optional[int] = Field(default=None)
     action_type: Optional[str] = None
     action_phase: Optional[str] = None
@@ -61,10 +66,10 @@ class FrameAnnotationCreate(BaseModel):
 
 class FrameAnnotationUpdate(BaseModel):
     keypoints: Optional[List[KeypointData]] = None
-    box_x: Optional[float] = None
-    box_y: Optional[float] = None
-    box_w: Optional[float] = None
-    box_h: Optional[float] = None
+    box_x: Optional[float] = Field(default=None, ge=0, le=100)
+    box_y: Optional[float] = Field(default=None, ge=0, le=100)
+    box_w: Optional[float] = Field(default=None, gt=0, le=100)
+    box_h: Optional[float] = Field(default=None, gt=0, le=100)
     selected_player_id: Optional[int] = Field(default=None)
     action_type: Optional[str] = None
     action_phase: Optional[str] = None

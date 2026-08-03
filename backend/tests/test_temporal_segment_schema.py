@@ -30,3 +30,15 @@ def test_invalid_observation_is_rejected_instead_of_silently_normalized():
             action_type="smash",
             evidence={"contact_visibility": "probably_visible", "confidence": 8},
         )
+
+
+def test_unknown_error_mechanism_is_rejected():
+    with pytest.raises(ValidationError):
+        TemporalSegmentCreate(
+            task_batch_id=1,
+            selected_player_id=2,
+            start_frame=10,
+            end_frame=20,
+            action_type="smash",
+            execution={"error_mechanisms": ["invented_error"]},
+        )

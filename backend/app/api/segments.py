@@ -31,6 +31,15 @@ from app.utils.audit import log_audit
 router = APIRouter(prefix="/segments", tags=["连续片段标注"])
 
 
+def _validate_event_evidence(batch: TaskBatch, evidence) -> None:
+    capture_mode = (batch.capture_metadata or {}).get("capture_mode")
+    if capture_mode == "competition" and evidence and evidence.basis == "controlled_instruction":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "比赛视频的证据依据不能选择受控训练指令",
+        )
+
+
 def _require_batch_access(batch: TaskBatch, user: User, *, writable: bool = False) -> None:
     if user.role == UserRole.STUDENT and user.id not in (
         batch.assigned_to,
@@ -131,6 +140,7 @@ def create_segment(
     current_user: User = Depends(get_current_user),
 ):
     batch = _get_batch(db, data.task_batch_id, current_user, writable=True)
+    _validate_event_evidence(batch, data.evidence)
     phase = None if current_user.role == UserRole.STUDENT else data.action_phase
     start_ms, end_ms = _validate_payload(
         db,
@@ -231,6 +241,7 @@ def update_segment(
     if not segment:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "片段不存在")
     batch = _get_batch(db, segment.task_batch_id, current_user, writable=True)
+    _validate_event_evidence(batch, data.evidence)
     if segment.status == AnnotationStatus.CONFIRMED.value:
         raise HTTPException(status.HTTP_409_CONFLICT, "已确认片段不能修改")
     if current_user.role == UserRole.STUDENT and segment.annotator_id != current_user.id:
@@ -247,7 +258,7 @@ def update_segment(
     action_type = str(update.get("action_type", segment.action_type))
     action_phase = update.get("action_phase", segment.action_phase)
     if current_user.role == UserRole.STUDENT:
-        action_phase = None
+        action_phase = segment.action_phase
         update.pop("action_phase", None)
     start_ms, end_ms = _validate_payload(
         db,

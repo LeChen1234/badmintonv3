@@ -135,7 +135,7 @@
           <el-form-item label="标注目标（必填）">
             <el-radio-group v-model="metadataForm.annotation_goal">
               <el-radio-button value="action_sequence">动作时序/战术</el-radio-button>
-              <el-radio-button value="technique_quality">精细动作质量</el-radio-button>
+              <el-radio-button value="technique_quality" :disabled="metadataForm.capture_mode === 'competition'">精细动作质量</el-radio-button>
             </el-radio-group>
           </el-form-item>
 
@@ -236,6 +236,7 @@
               <el-col :xs="24" :sm="12">
                 <el-form-item label="实际拍摄帧率（必填）">
                   <el-input-number v-model="metadataForm.recording_fps" :min="1" :max="1000" :step="1" style="width: 100%" />
+                  <div class="keypoint-hint" v-if="sourceFps > 0">系统从原视频检测：{{ sourceFps }} FPS</div>
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :sm="12">
@@ -265,6 +266,13 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            <el-alert
+              v-if="recordingFpsMismatch"
+              type="warning"
+              :closable="false"
+              :title="`填写帧率 ${metadataForm.recording_fps} 与原视频检测值 ${sourceFps} 不一致，请核对拍摄设置。`"
+              style="margin-bottom: 12px"
+            />
             <el-form-item label="指定变化或训练要求">
               <el-input v-model="metadataForm.intended_variation" maxlength="256" placeholder="例如：相同喂球下对比正常到位、稍晚到位、被动击球" />
             </el-form-item>
@@ -518,27 +526,43 @@
                     <el-col :xs="24" :sm="8"><el-select v-model="strokeEvent.context.incoming_depth" clearable placeholder="来球深度" style="width:100%"><el-option label="前场" value="front"/><el-option label="中场" value="mid"/><el-option label="后场" value="rear"/><el-option label="未知" value="unknown"/></el-select></el-col>
                     <el-col :xs="24" :sm="8"><el-select v-model="strokeEvent.context.pressure_state" clearable placeholder="局面压力" style="width:100%"><el-option label="主动" value="attacking"/><el-option label="均势" value="neutral"/><el-option label="被迫" value="forced"/><el-option label="未知" value="unknown"/></el-select></el-col>
                   </el-row>
+                  <el-row :gutter="8" class="event-layer-row">
+                    <el-col :xs="24" :sm="8"><el-select v-model="strokeEvent.context.incoming_direction" clearable placeholder="来球相对方向" style="width:100%"><el-option label="正手侧" value="forehand"/><el-option label="追身" value="body"/><el-option label="反手侧" value="backhand"/><el-option label="未知" value="unknown"/></el-select></el-col>
+                    <el-col :xs="24" :sm="8"><el-select v-model="strokeEvent.context.preparation_time" clearable placeholder="准备时间" style="width:100%"><el-option label="充分" value="sufficient"/><el-option label="受限" value="limited"/><el-option label="明显偏晚" value="very_late"/><el-option label="未知" value="unknown"/></el-select></el-col>
+                    <el-col :xs="24" :sm="8"><el-select v-model="strokeEvent.context.balance_before" clearable placeholder="击球前平衡" style="width:100%"><el-option label="稳定" value="stable"/><el-option label="移动中" value="moving"/><el-option label="失衡" value="off_balance"/><el-option label="未知" value="unknown"/></el-select></el-col>
+                  </el-row>
                   <div class="event-layer-title">2. 动作执行</div>
                   <el-row :gutter="8">
                     <el-col :xs="24" :sm="8"><el-select v-model="strokeEvent.execution.arrival_state" clearable placeholder="到位状态" style="width:100%"><el-option label="提前到位" value="early"/><el-option label="正常到位" value="on_time"/><el-option label="到位偏晚" value="late"/><el-option label="未知" value="unknown"/></el-select></el-col>
                     <el-col :xs="24" :sm="8"><el-select v-model="strokeEvent.execution.contact_relative_position" clearable placeholder="接触相对身体" style="width:100%"><el-option label="身体前方" value="front"/><el-option label="身体侧方" value="side"/><el-option label="身体后方" value="behind"/><el-option label="未知" value="unknown"/></el-select></el-col>
                     <el-col :xs="24" :sm="8"><el-select v-model="strokeEvent.execution.recovery_quality" clearable placeholder="回位质量" style="width:100%"><el-option label="良好" value="good"/><el-option label="部分完成" value="partial"/><el-option label="较差" value="poor"/><el-option label="未知" value="unknown"/></el-select></el-col>
                   </el-row>
+                  <el-row :gutter="8" class="event-layer-row">
+                    <el-col :xs="24" :sm="12"><el-input v-model="strokeEvent.execution.movement_pattern" maxlength="64" placeholder="步法/移动模式，例如：并步接交叉步" /></el-col>
+                    <el-col :xs="24" :sm="12"><el-select v-model="strokeEvent.execution.landing_stability" clearable placeholder="落地稳定性" style="width:100%"><el-option label="稳定" value="stable"/><el-option label="可恢复" value="recoverable"/><el-option label="不稳定" value="unstable"/><el-option label="未知" value="unknown"/></el-select></el-col>
+                  </el-row>
                   <el-select v-model="strokeEvent.execution.error_mechanisms" multiple clearable collapse-tags placeholder="可观察的错误机制（没有证据则不选）" style="width:100%; margin-top:8px">
                     <el-option label="判断/启动偏晚" value="late_start"/><el-option label="移动不到位" value="poor_arrival"/><el-option label="接触点靠后" value="contact_behind"/><el-option label="身体失衡" value="off_balance"/><el-option label="躯干带动不足" value="limited_trunk_rotation"/><el-option label="手臂协同不足" value="arm_coordination"/><el-option label="落地不稳定" value="unstable_landing"/><el-option label="回位偏慢" value="slow_recovery"/>
                   </el-select>
                   <div class="event-layer-title">3. 击球后果</div>
                   <el-row :gutter="8">
-                    <el-col :xs="24" :sm="8"><el-select v-model="strokeEvent.outcome.landing_depth" clearable placeholder="落点深度" style="width:100%"><el-option label="前场" value="front"/><el-option label="中场" value="mid"/><el-option label="后场" value="rear"/><el-option label="出界" value="out"/><el-option label="下网" value="net"/><el-option label="未知" value="unknown"/></el-select></el-col>
-                    <el-col :xs="24" :sm="8"><el-select v-model="strokeEvent.outcome.opponent_response" clearable placeholder="对手响应" style="width:100%"><el-option label="对手主动" value="attacking"/><el-option label="均势回球" value="neutral"/><el-option label="对手被迫" value="forced"/><el-option label="未能回球" value="no_return"/><el-option label="未知" value="unknown"/></el-select></el-col>
-                    <el-col :xs="24" :sm="8"><el-select v-model="strokeEvent.outcome.rally_effect" clearable placeholder="回合效果" style="width:100%"><el-option label="形成优势" value="advantage"/><el-option label="维持均势" value="neutral"/><el-option label="陷入被动" value="disadvantage"/><el-option label="直接得分" value="winner"/><el-option label="直接失误" value="error"/><el-option label="未知" value="unknown"/></el-select></el-col>
+                    <el-col :xs="24" :sm="6"><el-select v-model="strokeEvent.outcome.outgoing_height" clearable placeholder="出球高度" style="width:100%"><el-option label="低" value="low"/><el-option label="中" value="mid"/><el-option label="高" value="high"/><el-option label="未知" value="unknown"/></el-select></el-col>
+                    <el-col :xs="24" :sm="6"><el-select v-model="strokeEvent.outcome.landing_depth" clearable placeholder="落点深度" style="width:100%"><el-option label="前场" value="front"/><el-option label="中场" value="mid"/><el-option label="后场" value="rear"/><el-option label="出界" value="out"/><el-option label="下网" value="net"/><el-option label="未知" value="unknown"/></el-select></el-col>
+                    <el-col :xs="24" :sm="6"><el-select v-model="strokeEvent.outcome.opponent_response" clearable placeholder="对手响应" style="width:100%"><el-option label="对手主动" value="attacking"/><el-option label="均势回球" value="neutral"/><el-option label="对手被迫" value="forced"/><el-option label="未能回球" value="no_return"/><el-option label="未知" value="unknown"/></el-select></el-col>
+                    <el-col :xs="24" :sm="6"><el-select v-model="strokeEvent.outcome.rally_effect" clearable placeholder="回合效果" style="width:100%"><el-option label="形成优势" value="advantage"/><el-option label="维持均势" value="neutral"/><el-option label="陷入被动" value="disadvantage"/><el-option label="直接得分" value="winner"/><el-option label="直接失误" value="error"/><el-option label="未知" value="unknown"/></el-select></el-col>
                   </el-row>
                   <div class="event-layer-title">4. 证据与可见性</div>
                   <el-row :gutter="8">
-                    <el-col :xs="24" :sm="8"><el-select v-model="strokeEvent.evidence.contact_visibility" style="width:100%"><el-option label="接触清晰可见" value="clear"/><el-option label="由相邻帧推断" value="inferred"/><el-option label="接触不可见" value="not_visible"/></el-select></el-col>
-                    <el-col :xs="24" :sm="8"><el-select v-model="strokeEvent.evidence.basis" style="width:100%"><el-option label="视频直接观察" value="direct_video"/><el-option label="上下帧判断" value="adjacent_frames"/><el-option label="受控训练指令" value="controlled_instruction"/><el-option label="专家推断" value="expert_inference"/></el-select></el-col>
-                    <el-col :xs="24" :sm="8"><el-rate v-model="strokeEvent.evidence.confidence" show-text :texts="['很低','较低','一般','较高','很高']"/></el-col>
+                    <el-col :xs="24" :sm="6"><el-select v-model="strokeEvent.evidence.context_visibility" style="width:100%"><el-option label="情境清晰" value="clear"/><el-option label="情境部分可见" value="partial"/><el-option label="情境未知" value="unknown"/></el-select></el-col>
+                    <el-col :xs="24" :sm="6"><el-select v-model="strokeEvent.evidence.contact_visibility" style="width:100%"><el-option label="接触清晰可见" value="clear"/><el-option label="由相邻帧推断" value="inferred"/><el-option label="接触不可见" value="not_visible"/></el-select></el-col>
+                    <el-col :xs="24" :sm="6"><el-select v-model="strokeEvent.evidence.outcome_visibility" style="width:100%"><el-option label="后果清晰" value="clear"/><el-option label="后果部分可见" value="partial"/><el-option label="后果未知" value="unknown"/></el-select></el-col>
+                    <el-col :xs="24" :sm="6"><el-select v-model="strokeEvent.evidence.basis" style="width:100%"><el-option label="视频直接观察" value="direct_video"/><el-option label="上下帧判断" value="adjacent_frames"/><el-option label="受控训练指令" value="controlled_instruction" :disabled="metadataForm.capture_mode === 'competition'"/><el-option label="专家推断" value="expert_inference"/></el-select></el-col>
                   </el-row>
+                  <div class="event-layer-footer">
+                    <el-rate v-model="strokeEvent.evidence.confidence" show-text :texts="['很低','较低','一般','较高','很高']"/>
+                    <el-checkbox v-model="carryStrokeEventFields">保存后保留本组条件（仅用于同条件重复动作）</el-checkbox>
+                    <el-button size="small" plain @click="resetStrokeEvent">清空四层字段</el-button>
+                  </div>
                 </el-collapse-item>
               </el-collapse>
               <div v-if="currentTemporalSegments.length" class="active-segments">
@@ -569,6 +593,7 @@
                       <template #default="{ row }">
                         {{ actionTypeLabel(row.action_type) }}
                         <span v-if="row.action_phase"> / {{ actionPhaseLabel(row.action_phase) }}</span>
+                        <div class="segment-time">{{ temporalSegmentSummary(row) }}</div>
                       </template>
                     </el-table-column>
                     <el-table-column label="状态" width="90">
@@ -993,6 +1018,12 @@ const sourceDurationText = computed(() => formatTimestamp(Number(sourceFrameCoun
 const sourceResolutionText = computed(() =>
   sourceWidth.value > 0 && sourceHeight.value > 0 ? ` / ${sourceWidth.value}×${sourceHeight.value}` : '',
 )
+const recordingFpsMismatch = computed(() =>
+  metadataForm.capture_mode === 'controlled_training'
+  && sourceFps.value > 0
+  && !!metadataForm.recording_fps
+  && Math.abs(Number(metadataForm.recording_fps) - sourceFps.value) > Math.max(1, sourceFps.value * 0.03),
+)
 const currentFrameRejected = computed(() => rejectedFrameIndices.value.has(currentFrame.value))
 const currentFrameRejectionReason = computed(() => frameRejectionReasons.value[currentFrame.value] || '无标注价值')
 type FramePriority = {
@@ -1076,12 +1107,28 @@ type TemporalSegment = {
 const temporalSegments = ref<TemporalSegment[]>([])
 const segmentStartFrame = ref<number | null>(null)
 const segmentSaving = ref(false)
-const strokeEvent = reactive({
-  context: { incoming_height: '', incoming_depth: '', pressure_state: '' },
-  execution: { arrival_state: '', contact_relative_position: '', recovery_quality: '', error_mechanisms: [] as string[] },
-  outcome: { landing_depth: '', opponent_response: '', rally_effect: '' },
-  evidence: { context_visibility: 'unknown', contact_visibility: 'not_visible', outcome_visibility: 'unknown', confidence: 3, basis: 'direct_video' },
-})
+function emptyStrokeEvent() {
+  return {
+    context: {
+      incoming_height: '', incoming_depth: '', incoming_direction: '', pressure_state: '',
+      preparation_time: '', balance_before: '',
+    },
+    execution: {
+      arrival_state: '', movement_pattern: '', contact_relative_position: '', landing_stability: '',
+      recovery_quality: '', error_mechanisms: [] as string[],
+    },
+    outcome: { outgoing_height: '', landing_depth: '', opponent_response: '', rally_effect: '' },
+    evidence: {
+      context_visibility: 'unknown', contact_visibility: 'not_visible', outcome_visibility: 'unknown',
+      confidence: 3, basis: 'direct_video',
+    },
+  }
+}
+const strokeEvent = reactive(emptyStrokeEvent())
+const carryStrokeEventFields = ref(false)
+function resetStrokeEvent() {
+  Object.assign(strokeEvent, emptyStrokeEvent())
+}
 const isSegmentReviewer = computed(() => authStore.hasRole('super_admin', 'admin', 'leader', 'expert'))
 const currentTemporalSegments = computed(() =>
   temporalSegments.value.filter(
@@ -1301,6 +1348,22 @@ const segmentStatusLabel = (status: TemporalSegment['status']) => ({
   submitted: '待确认',
   confirmed: '已确认',
 }[status] || status)
+function temporalSegmentSummary(segment: TemporalSegment) {
+  const context = segment.context || {}
+  const execution = segment.execution || {}
+  const outcome = segment.outcome || {}
+  const evidence = segment.evidence || {}
+  const pressureLabels: Record<string, string> = { attacking: '主动', neutral: '均势', forced: '被迫', unknown: '局面未知' }
+  const arrivalLabels: Record<string, string> = { early: '提前到位', on_time: '正常到位', late: '到位偏晚', unknown: '到位未知' }
+  const effectLabels: Record<string, string> = { advantage: '形成优势', neutral: '维持均势', disadvantage: '陷入被动', winner: '直接得分', error: '直接失误', unknown: '效果未知' }
+  const parts = [
+    pressureLabels[String(context.pressure_state || '')],
+    arrivalLabels[String(execution.arrival_state || '')],
+    effectLabels[String(outcome.rally_effect || '')],
+    evidence.confidence ? `置信度 ${evidence.confidence}/5` : '',
+  ].filter(Boolean)
+  return parts.length ? parts.join(' · ') : '四层信息未填写'
+}
 
 type TaxonomyOption = { value: string; label: string }
 const taxonomy = reactive({
@@ -1546,11 +1609,22 @@ function onCaptureModeChange() {
     metadataForm.annotation_goal = 'action_sequence'
     metadataForm.marker_protocol = 'video_landmarks'
     if (!metadataForm.match_format) metadataForm.match_format = 'singles'
+    metadataForm.source_reference = metadataForm.source_reference || ''
+    metadataForm.device_model = ''
+    metadataForm.recording_fps = null
+    metadataForm.recording_design = ''
+    metadataForm.feed_method = ''
+    metadataForm.repetition_group_id = ''
+    metadataForm.bridge_view_id = ''
+    metadataForm.intended_variation = ''
     onMatchFormatChange()
     return
   }
   metadataForm.annotation_goal = 'technique_quality'
   metadataForm.match_format = ''
+  metadataForm.source_reference = ''
+  metadataForm.source_platform = ''
+  if (!metadataForm.recording_fps && sourceFps.value > 0) metadataForm.recording_fps = sourceFps.value
   if (metadataForm.players.length < 1) metadataForm.players.push(createEmptyPlayer())
 }
 
@@ -1634,6 +1708,13 @@ async function loadBatchInfo() {
     sourceFps.value = Number(res.data?.selection_metadata?.source_fps || 0)
     sourceWidth.value = Number(res.data?.selection_metadata?.source_width || 0)
     sourceHeight.value = Number(res.data?.selection_metadata?.source_height || 0)
+    if (
+      metadataForm.capture_mode === 'controlled_training'
+      && !metadataForm.recording_fps
+      && sourceFps.value > 0
+    ) {
+      metadataForm.recording_fps = sourceFps.value
+    }
     const framesRes = await taskApi.getFrames(batchId)
     const frames = (framesRes.data || []) as { frame_index: number; file_path: string; timestamp_ms: number; is_rejected?: boolean; rejection_reason?: string }[]
     frameTimestamps.value = Object.fromEntries(frames.map((frame) => [frame.frame_index, Number(frame.timestamp_ms || 0)]))
@@ -1698,6 +1779,7 @@ async function saveTemporalSegment() {
       evidence: { ...strokeEvent.evidence },
     })
     segmentStartFrame.value = null
+    if (!carryStrokeEventFields.value) resetStrokeEvent()
     await loadTemporalSegments()
     ElMessage.success(`动作片段 ${start}–${end} 已保存`)
   } catch { /* request interceptor displays the server validation message */ }
@@ -3490,6 +3572,26 @@ onUnmounted(() => {
 .segment-guidance {
   margin-top: 8px;
   color: #64748b;
+}
+.stroke-event-fields {
+  margin-top: 10px;
+}
+.event-layer-title {
+  margin: 10px 0 7px;
+  color: #303133;
+  font-weight: 600;
+}
+.event-layer-row {
+  margin-top: 8px;
+}
+.event-layer-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #dcdfe6;
 }
 .active-segments {
   margin-top: 10px;

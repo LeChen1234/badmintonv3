@@ -88,7 +88,12 @@ def _split_for_group(group: str, seed: str, splits: Dict[str, float]) -> str:
 
 
 def build_release(
-    records: Sequence[dict], project_uuid: str, protocol: Optional[dict] = None, *, only_locked_batches: bool = True
+    records: Sequence[dict],
+    project_uuid: str,
+    protocol: Optional[dict] = None,
+    *,
+    only_locked_batches: bool = True,
+    require_pose_coverage: bool = True,
 ) -> Tuple[list, dict]:
     protocol = protocol or load_research_protocol()
     priorities = list(protocol["group_key_priority"])
@@ -124,7 +129,11 @@ def build_release(
         "stable_group_identity": missing == 0,
         "minimum_matches": len(group_splits) >= int(requirements.get("minimum_matches", 1)),
         "minimum_action_classes": action_classes >= int(requirements.get("minimum_action_classes", 2)),
-        "minimum_pose_coverage": pose_coverage >= float(requirements.get("minimum_pose_coverage", 0.8)),
+        "minimum_pose_coverage": (
+            pose_coverage >= float(requirements.get("minimum_pose_coverage", 0.8))
+            if require_pose_coverage
+            else True
+        ),
         "all_splits_non_empty": bool(released) and all(count > 0 for count in counts.values()),
     }
     warnings = []
@@ -141,6 +150,7 @@ def build_release(
         "record_count": len(released), "group_count": len(group_splits),
         "split_record_counts": counts, "missing_group_identity": missing,
         "action_class_count": action_classes, "pose_coverage": pose_coverage,
+        "pose_coverage_applicable": require_pose_coverage,
         "quality_gates": gates, "release_ready": all(gates.values()),
         "warnings": warnings,
     }

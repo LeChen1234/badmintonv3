@@ -110,6 +110,44 @@ class CaptureProtocolServiceTests(unittest.TestCase):
         self.assertIn("手机训练视频必须选择自然训练或指定动作采集方式", errors)
         self.assertIn("手机训练视频必须填写实际拍摄帧率", errors)
 
+    def test_mode_specific_fields_do_not_leak_between_sources(self):
+        competition = normalize_capture_metadata(
+            {
+                "capture_mode": "competition",
+                "source_reference": "MATCH-1",
+                "recording_design": "natural_training",
+                "recording_fps": 60,
+            },
+            match_format="singles",
+        )
+        training = normalize_capture_metadata(
+            {
+                "capture_mode": "controlled_training",
+                "source_reference": "https://should-not-remain.test",
+                "recording_design": "natural_training",
+                "recording_fps": 60,
+            }
+        )
+        self.assertIsNone(competition["recording_design"])
+        self.assertIsNone(competition["recording_fps"])
+        self.assertIsNone(training["source_reference"])
+
+    def test_competition_rejects_fine_quality_track(self):
+        errors = validate_capture_protocol(
+            capture_metadata={
+                "capture_mode": "competition",
+                "annotation_goal": "technique_quality",
+                "camera_view": "rear",
+                "target_action": "杀球",
+                "source_reference": "MATCH-1",
+            },
+            match_format="singles",
+            match_name="公开赛",
+            match_date="2026-08-03",
+            player_count=2,
+        )
+        self.assertIn("比赛远景视频只能使用动作时序/战术标注轨", errors)
+
 
 if __name__ == "__main__":
     unittest.main()

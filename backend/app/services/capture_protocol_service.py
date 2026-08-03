@@ -75,7 +75,7 @@ def normalize_capture_metadata(
         text = str(raw.get(key) or "").strip()
         return text[:max_length] or None
 
-    return {
+    normalized = {
         "capture_mode": capture_mode,
         "annotation_goal": annotation_goal,
         "camera_view": camera_view,
@@ -94,6 +94,21 @@ def normalize_capture_metadata(
         "bridge_view_id": clean_text("bridge_view_id", 64),
         "intended_variation": clean_text("intended_variation", 256),
     }
+    if capture_mode == "competition":
+        for key in (
+            "device_model",
+            "recording_fps",
+            "recording_design",
+            "feed_method",
+            "repetition_group_id",
+            "bridge_view_id",
+            "intended_variation",
+        ):
+            normalized[key] = None
+    else:
+        normalized["source_reference"] = None
+        normalized["source_platform"] = None
+    return normalized
 
 
 def validate_capture_protocol(
@@ -115,6 +130,8 @@ def validate_capture_protocol(
         errors.append("请选择拍摄视角")
 
     if protocol["capture_mode"] == "competition":
+        if protocol["annotation_goal"] != "action_sequence":
+            errors.append("比赛远景视频只能使用动作时序/战术标注轨")
         expected = 2 if match_format == "singles" else 4 if match_format == "doubles" else 0
         if not expected:
             errors.append("比赛视频请选择单打或双打")

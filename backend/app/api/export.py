@@ -29,6 +29,23 @@ from app.utils.audit import log_audit
 router = APIRouter(prefix="/export", tags=["数据导出"])
 
 
+def _capture_group_fields(batch: TaskBatch | None) -> dict:
+    capture = batch.capture_metadata if batch and isinstance(batch.capture_metadata, dict) else {}
+    session = capture.get("capture_session_id")
+
+    def scoped(key: str):
+        value = capture.get(key)
+        if not value:
+            return None
+        return f"{session}:{value}" if session else str(value)
+
+    return {
+        "capture_session_id": session,
+        "bridge_view_id": scoped("bridge_view_id"),
+        "repetition_group_id": scoped("repetition_group_id"),
+    }
+
+
 def _gather_confirmed_annotations(db: Session, project_id: int, only_locked: bool = False):
     """收集某项目下所有已确认的标注数据"""
     batch_query = db.query(TaskBatch).filter(TaskBatch.project_id == project_id)
@@ -73,6 +90,8 @@ def _gather_confirmed_segments(db: Session, batch_map: dict[int, TaskBatch]) -> 
             "task_batch_uuid": batch_map[segment.task_batch_id].uuid,
             "video_id": batch_map[segment.task_batch_id].video_id,
             "capture_metadata": batch_map[segment.task_batch_id].capture_metadata,
+            **_capture_group_fields(batch_map[segment.task_batch_id]),
+            "match_uuid": batch_map[segment.task_batch_id].match_uuid,
             "selected_player_id": segment.selected_player_id,
             "selected_player_uuid": segment.selected_player.uuid if segment.selected_player else None,
             "subject_code": segment.selected_player.subject_code if segment.selected_player else None,
@@ -159,6 +178,7 @@ def _to_export_json(annotations, batch_map):
             "match_format": batch.match_format if batch else None,
             "match_date": batch.match_date.isoformat() if batch and batch.match_date else None,
             "capture_metadata": batch.capture_metadata if batch else None,
+            **_capture_group_fields(batch),
             "selection_metadata": batch.selection_metadata if batch else None,
             "video_id": batch.video_id if batch else None,
             "video_sha256": batch.video_sha256 if batch else None,
@@ -309,7 +329,9 @@ def _records_to_csv(records: list) -> str:
     w = csv.writer(out)
     w.writerow([
         "task_batch_id", "video_id", "capture_mode", "annotation_goal", "camera_view",
-        "capture_session_id", "target_action", "frame_index", "frame_timestamp_ms", "frame_timestamp_seconds",
+        "capture_session_id", "bridge_view_id", "repetition_group_id", "target_action",
+        "source_reference", "source_platform", "recording_design", "recording_fps", "feed_method",
+        "intended_variation", "frame_index", "frame_timestamp_ms", "frame_timestamp_seconds",
         "annotator_id", "annotator_name",
         "selected_player_id", "selected_player_name", "bbox",
         "action_type", "action_phase", "quality_rating", "is_forced_action",
@@ -329,7 +351,15 @@ def _records_to_csv(records: list) -> str:
             capture.get("annotation_goal") or "",
             capture.get("camera_view") or "",
             capture.get("capture_session_id") or "",
+            capture.get("bridge_view_id") or "",
+            capture.get("repetition_group_id") or "",
             capture.get("target_action") or "",
+            capture.get("source_reference") or "",
+            capture.get("source_platform") or "",
+            capture.get("recording_design") or "",
+            capture.get("recording_fps") or "",
+            capture.get("feed_method") or "",
+            capture.get("intended_variation") or "",
             r.get("frame_index"),
             r.get("frame_timestamp_ms", 0),
             r.get("frame_timestamp_seconds", 0),
@@ -369,6 +399,12 @@ def export_project(
     temporal_segments = _gather_confirmed_segments(db, batch_map)
     records = _to_export_json(annotations, batch_map)
     records, release_manifest = build_release(records, project.uuid, only_locked_batches=req.only_locked)
+    temporal_segments, temporal_release_manifest = build_release(
+        temporal_segments,
+        project.uuid,
+        only_locked_batches=req.only_locked,
+        require_pose_coverage=False,
+    )
     frame_path_map = _build_frame_path_map(db, list(batch_map.keys()))
 
     fmt = (req.format or "json").lower()
@@ -385,7 +421,7 @@ def export_project(
         taxonomy = load_annotation_taxonomy()
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump({
-                "schema_version": "2.1",
+                "schema_version": "2.2",
                 "project_id": project_id,
                 "project_uuid": project.uuid,
                 "project_name": project.name,
@@ -398,6 +434,7 @@ def export_project(
                 "annotations": records,
                 "total_temporal_segments": len(temporal_segments),
                 "temporal_segments": temporal_segments,
+                "temporal_release_manifest": temporal_release_manifest,
             }, f, ensure_ascii=False, indent=2)
     elif fmt == "coco":
         coco = _records_to_coco(records, project.name, frame_path_map)

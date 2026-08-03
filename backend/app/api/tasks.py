@@ -19,6 +19,7 @@ from app.database import get_db
 from app.models.batch_frame import BatchFrame
 from app.models.player import Player
 from app.models.annotation import FrameAnnotation
+from app.models.temporal_segment import TemporalSegment
 from app.models.task_batch import MediaProcessStatus, TaskBatch, TaskStatus
 from app.models.user import User, UserRole
 from app.schemas.task_batch import TaskBatchCreate, TaskBatchMediaProcessOut, TaskBatchMetadataUpdate, TaskBatchOut, TaskBatchUpdate
@@ -181,8 +182,16 @@ def _sync_batch_players(db: Session, batch: TaskBatch, players_input: Optional[L
             .filter(FrameAnnotation.selected_player_id == player.id)
             .count()
         )
-        if ref_count > 0:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"选手 {player.name} 已被标注引用，不能删除")
+        segment_ref_count = (
+            db.query(TemporalSegment)
+            .filter(TemporalSegment.selected_player_id == player.id)
+            .count()
+        )
+        if ref_count > 0 or segment_ref_count > 0:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"选手 {player.name} 已被单帧标注或连续击球事件引用，不能删除",
+            )
         db.delete(player)
 
 

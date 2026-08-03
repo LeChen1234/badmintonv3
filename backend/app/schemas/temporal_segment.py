@@ -21,7 +21,12 @@ class StrokeExecution(BaseModel):
     contact_relative_position: Optional[Literal["front", "side", "behind", "unknown"]] = None
     landing_stability: Optional[Literal["stable", "recoverable", "unstable", "unknown"]] = None
     recovery_quality: Optional[Literal["good", "partial", "poor", "unknown"]] = None
-    error_mechanisms: list[str] = Field(default_factory=list, max_length=12)
+    error_mechanisms: list[
+        Literal[
+            "late_start", "poor_arrival", "contact_behind", "off_balance",
+            "limited_trunk_rotation", "arm_coordination", "unstable_landing", "slow_recovery",
+        ]
+    ] = Field(default_factory=list, max_length=12)
 
 
 class StrokeOutcome(BaseModel):
