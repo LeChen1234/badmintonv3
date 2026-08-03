@@ -34,12 +34,40 @@ class TaskPlayerInfo(BaseModel):
     gender: Optional[str] = Field(default=None, max_length=16)
     age: Optional[int] = Field(default=None, ge=1, le=99)
     height_cm: Optional[int] = Field(default=None, ge=80, le=260)
+    racket_hand: Optional[str] = Field(default=None, pattern="^(left|right)$")
+
+
+class CaptureMetadata(BaseModel):
+    capture_mode: str = Field(default="competition", pattern="^(competition|controlled_training)$")
+    annotation_goal: str = Field(default="action_sequence", pattern="^(action_sequence|technique_quality)$")
+    camera_view: Optional[str] = Field(
+        default=None,
+        pattern="^(front|rear|left|right|front_left|front_right|rear_left|rear_right|other)$",
+    )
+    camera_height: str = Field(default="unknown", pattern="^(low|eye_level|high|unknown)$")
+    capture_session_id: Optional[str] = Field(default=None, max_length=64)
+    target_action: Optional[str] = Field(default=None, max_length=128)
+    marker_protocol: str = Field(default="video_landmarks", pattern="^(video_landmarks|physical_markers)$")
+    recording_notes: Optional[str] = Field(default=None, max_length=512)
+    source_reference: Optional[str] = Field(default=None, max_length=512)
+    source_platform: Optional[str] = Field(default=None, max_length=64)
+    device_model: Optional[str] = Field(default=None, max_length=128)
+    recording_fps: Optional[float] = Field(default=None, ge=1, le=1000)
+    recording_design: Optional[str] = Field(
+        default=None,
+        pattern="^(natural_training|prescribed_standard|prescribed_variation|mixed)$",
+    )
+    feed_method: Optional[str] = Field(default=None, pattern="^(coach|machine|self|rally|unknown)$")
+    repetition_group_id: Optional[str] = Field(default=None, max_length=64)
+    bridge_view_id: Optional[str] = Field(default=None, max_length=64)
+    intended_variation: Optional[str] = Field(default=None, max_length=256)
 
 
 class TaskBatchMetadataUpdate(BaseModel):
     match_date: Optional[date] = Field(default=None)
     match_name: Optional[str] = Field(default=None, max_length=256)
     match_format: Optional[str] = Field(default=None, pattern="^(singles|doubles)$")
+    capture_metadata: Optional[CaptureMetadata] = None
     players: Optional[List[TaskPlayerInfo]] = None
 
 
@@ -66,6 +94,8 @@ class TaskBatchOut(BaseModel):
     match_date: Optional[date] = None
     match_name: Optional[str] = None
     match_format: Optional[str] = None
+    capture_metadata: Optional[Any] = None
+    capture_protocol_advisory: Optional[Any] = None
     players: List[TaskPlayerInfo] = Field(default_factory=list)
     metadata_confirmed: bool = False
     metadata_confirmed_at: Optional[datetime] = None

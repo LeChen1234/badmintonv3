@@ -20,6 +20,7 @@ class Player(Base):
     gender: Mapped[str | None] = mapped_column(String(16), nullable=True)
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height_cm: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    racket_hand: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     task_batch = relationship("TaskBatch", back_populates="players")
     annotations = relationship("FrameAnnotation", back_populates="selected_player_obj")

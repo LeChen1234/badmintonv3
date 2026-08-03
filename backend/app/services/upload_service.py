@@ -227,7 +227,7 @@ def _clear_batch_media_files(batch_id: int) -> None:
             path.unlink(missing_ok=True)
 
 
-def _promote_processed_frames(batch_id: int, saved_paths: List[Path]) -> List[Tuple[int, str]]:
+def _promote_processed_frames(batch_id: int, saved_paths: List[Path]) -> List[Tuple]:
     batch_dir = _batch_upload_dir(batch_id)
     _clear_batch_media_files(batch_id)
 
@@ -235,12 +235,25 @@ def _promote_processed_frames(batch_id: int, saved_paths: List[Path]) -> List[Tu
     for i, path in enumerate(saved_paths, start=1):
         ext = path.suffix.lower() or ".jpg"
         timestamp_ms = 0
-        match = __import__("re").search(r"_t(\d+)$", path.stem)
+        match = __import__("re").search(r"_t(\d+)(?:_|$)", path.stem)
         if match:
             timestamp_ms = int(match.group(1))
+        component_match = __import__("re").search(
+            r"_q([0-9.]+)_m([0-9.]+)_e([0-9.]+)_s([0-9.]+)_c([0-9.]+)_k([01])(?:_r([01]))?", path.stem
+        )
+        selection = None
+        if component_match:
+            score, motion, entropy, spectral, calculus = (float(component_match.group(i)) for i in range(1, 6))
+            selection = {
+                "score": score,
+                "components": {"motion": motion, "entropy": entropy, "spectral": spectral, "calculus": calculus,
+                               "keyframe": int(component_match.group(6))},
+                "strategy_version": "influence-lite-candidate-v1",
+                "initially_filtered": bool(int(component_match.group(7) or 0)),
+            }
         final_path = batch_dir / f"frame_{i}_t{timestamp_ms}{ext}"
         shutil.move(str(path), str(final_path))
-        entries.append((i, f"batch_{batch_id}/{final_path.name}", timestamp_ms))
+        entries.append((i, f"batch_{batch_id}/{final_path.name}", timestamp_ms, selection))
 
     cleanup_processing_dir(batch_id)
     return entries
@@ -279,6 +292,31 @@ def process_uploaded_video_in_background(
         frames_dir = processing_dir / "frames"
         frames_dir.mkdir(parents=True, exist_ok=True)
 
+        source_video = {
+            "source_frame_count": 0,
+            "source_fps": 0.0,
+            "source_duration_ms": 0,
+            "source_width": 0,
+            "source_height": 0,
+        }
+        try:
+            import cv2
+            probe = cv2.VideoCapture(str(video_path))
+            source_frame_count = int(probe.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            source_fps = float(probe.get(cv2.CAP_PROP_FPS) or 0.0)
+            source_width = int(probe.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            source_height = int(probe.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+            probe.release()
+            source_video = {
+                "source_frame_count": source_frame_count,
+                "source_fps": round(source_fps, 3),
+                "source_duration_ms": int(round(source_frame_count / source_fps * 1000)) if source_fps > 0 else 0,
+                "source_width": source_width,
+                "source_height": source_height,
+            }
+        except Exception:
+            logger.warning("无法预读取原视频帧数: %s", video_path, exc_info=True)
+
         last_progress = {"stage": None, "percent": -1, "tick": 0.0}
 
         def on_progress(stage: str, processed: int, total: int) -> None:
@@ -311,6 +349,7 @@ def process_uploaded_video_in_background(
             "component_weights": information_weights,
             "motion_percentile": motion_percentile,
             "active_learning_feedback": True,
+            **source_video,
         }
         db.commit()
         saved_paths = _extract_video_to_paths(
@@ -332,6 +371,8 @@ def process_uploaded_video_in_background(
             return
 
         replace_frames_for_batch(db, batch, entries)
+        batch.selection_metadata = {**(batch.selection_metadata or {}), "extracted_frame_count": len(entries)}
+        db.commit()
         task_service.update_media_process_state(
             db,
             batch,
@@ -396,8 +437,12 @@ def add_frames_to_batch(
     for i, entry in enumerate(frame_entries, start=1):
         frame_index, file_path, *metadata = entry
         timestamp_ms = int(metadata[0]) if metadata else 0
+        selection = metadata[1] if len(metadata) > 1 and isinstance(metadata[1], dict) else {}
         idx = max_idx + i
-        bf = BatchFrame(task_batch_id=batch.id, frame_index=idx, file_path=file_path, timestamp_ms=timestamp_ms)
+        bf = BatchFrame(task_batch_id=batch.id, frame_index=idx, file_path=file_path, timestamp_ms=timestamp_ms,
+                        selection_score=float(selection.get("score", 0.0)),
+                        selection_components=selection.get("components"),
+                        selection_strategy_version=selection.get("strategy_version"))
         db.add(bf)
 
     batch.total_frames = max_idx + len(frame_entries)
@@ -415,7 +460,13 @@ def replace_frames_for_batch(
     for i, entry in enumerate(frame_entries, start=1):
         _, file_path, *metadata = entry
         timestamp_ms = int(metadata[0]) if metadata else 0
-        bf = BatchFrame(task_batch_id=batch.id, frame_index=i, file_path=file_path, timestamp_ms=timestamp_ms)
+        selection = metadata[1] if len(metadata) > 1 and isinstance(metadata[1], dict) else {}
+        bf = BatchFrame(task_batch_id=batch.id, frame_index=i, file_path=file_path, timestamp_ms=timestamp_ms,
+                        is_rejected=bool(selection.get("initially_filtered")),
+                        rejection_reason="filter_excluded" if selection.get("initially_filtered") else None,
+                        selection_score=float(selection.get("score", 0.0)),
+                        selection_components=selection.get("components"),
+                        selection_strategy_version=selection.get("strategy_version"))
         db.add(bf)
     batch.total_frames = len(frame_entries)
     db.commit()

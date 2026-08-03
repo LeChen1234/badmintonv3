@@ -2,7 +2,7 @@
 
 YOLO supplies high-recall person proposals (including optional image tiles), then
 MediaPipe refines each crop. Results are de-duplicated and mapped to the project's
-25-point skeleton. Coordinates are percentages of the complete image.
+23-point human skeleton. Racket/contact geometry is annotated separately.
 """
 
 from __future__ import annotations
@@ -41,8 +41,8 @@ def _point(name, xy, confidence, width, height):
     return {"name": name, "x": x, "y": y, "visibility": visibility}
 
 
-def _coco_to_25(xy, conf, width, height):
-    """Map COCO-17 to the stable 25-point project schema."""
+def _coco_to_23(xy, conf, width, height):
+    """Map COCO-17 to the stable 23-point human schema."""
     p = lambda i: (float(xy[i][0]), float(xy[i][1]))
     c = lambda i: float(conf[i]) if conf is not None else 1.0
     nose, ls, rs, lh, rh = p(0), p(5), p(6), p(11), p(12)
@@ -66,9 +66,7 @@ def _coco_to_25(xy, conf, width, height):
         ("right_hip", rh, c(12)), ("right_knee", p(14), c(14)), ("right_ankle", p(16), c(16)),
         ("right_toe", rtoe, min(c(14), c(16)) * .7),
     ]
-    points = [_point(*s, width, height) for s in specs]
-    points.extend([{"name": n, "x": 0, "y": 0, "visibility": 0} for n in ("racket_grip", "racket_head")])
-    return points
+    return [_point(*s, width, height) for s in specs]
 
 
 def _load_yolo():
@@ -160,6 +158,19 @@ def _nms(candidates):
     return kept[: settings.POSE_MAX_PERSONS]
 
 
+def _select_candidates_for_box(candidates, target_box, limit):
+    """Prefer the pose whose detector box best matches the annotator's box."""
+    ranked = sorted(
+        candidates,
+        key=lambda candidate: (
+            _iou(candidate["bbox_px"], target_box),
+            candidate["detection_confidence"],
+        ),
+        reverse=True,
+    )
+    return ranked[:limit]
+
+
 def predict_persons_detailed_from_image_path(
     image_path: Union[str, Path], bbox_percent: Optional[List[float]] = None,
 ) -> List[Dict[str, Any]]:
@@ -170,14 +181,22 @@ def predict_persons_detailed_from_image_path(
     height, width = image.shape[:2]
     work_image = image
     offset_x = offset_y = 0
+    target_box_px = None
     if bbox_percent is not None:
         if len(bbox_percent) != 4:
             raise ValueError("bbox_percent must contain x, y, width and height")
         bx, by, bw, bh = bbox_percent
-        offset_x = max(0, min(width - 1, int(bx / 100 * width)))
-        offset_y = max(0, min(height - 1, int(by / 100 * height)))
-        end_x = max(offset_x + 1, min(width, int((bx + bw) / 100 * width)))
-        end_y = max(offset_y + 1, min(height, int((by + bh) / 100 * height)))
+        raw_x1 = max(0, min(width - 1, int(bx / 100 * width)))
+        raw_y1 = max(0, min(height - 1, int(by / 100 * height)))
+        raw_x2 = max(raw_x1 + 1, min(width, int((bx + bw) / 100 * width)))
+        raw_y2 = max(raw_y1 + 1, min(height, int((by + bh) / 100 * height)))
+        target_box_px = [raw_x1, raw_y1, raw_x2, raw_y2]
+        padding_x = int((raw_x2 - raw_x1) * settings.POSE_BOX_PADDING_RATIO)
+        padding_y = int((raw_y2 - raw_y1) * settings.POSE_BOX_PADDING_RATIO)
+        offset_x = max(0, raw_x1 - padding_x)
+        offset_y = max(0, raw_y1 - padding_y)
+        end_x = min(width, raw_x2 + padding_x)
+        end_y = min(height, raw_y2 + padding_y)
         work_image = image[offset_y:end_y, offset_x:end_x]
     try:
         model = _load_yolo()
@@ -188,8 +207,8 @@ def predict_persons_detailed_from_image_path(
                 for y in sorted(set((0, height - tile_h))):
                     candidates += _infer_region(model, image[y:y+tile_h, x:x+tile_w], x, y, width, height, "yolo-tile")
         candidates = _nms(candidates)
-        if bbox_percent is not None:
-            candidates = candidates[:settings.POSE_BOX_MAX_PERSONS]
+        if target_box_px is not None:
+            candidates = _select_candidates_for_box(candidates, target_box_px, settings.POSE_BOX_MAX_PERSONS)
     except Exception as exc:
         logger.exception("YOLO multi-person pose failed: %s", exc)
         raise PoseBackendUnavailable(
@@ -198,7 +217,7 @@ def predict_persons_detailed_from_image_path(
 
     persons = []
     for candidate in candidates:
-        keypoints = _coco_to_25(candidate["xy"], candidate["conf"], width, height)
+        keypoints = _coco_to_23(candidate["xy"], candidate["conf"], width, height)
         visible = sum(p["visibility"] > 0 for p in keypoints)
         if visible < settings.POSE_MIN_VISIBLE_JOINTS:
             continue

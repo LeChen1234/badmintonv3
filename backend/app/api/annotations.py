@@ -67,7 +67,7 @@ def _expert_triage(assist_metadata, keypoints, is_contact_event: bool) -> list[s
         reasons.append("预标注质量评估低于直接采用阈值")
     visible = sum(int(point.get("visibility", 0)) > 0 for point in (keypoints or []) if isinstance(point, dict))
     if visible < 15:
-        reasons.append(f"人体关键点可见数量不足（{visible}/25）")
+        reasons.append(f"人体关键点可见数量不足（{visible}/23）")
     if is_contact_event:
         reasons.append("击球接触与拍面技术属性需要专家复核")
     return reasons
@@ -296,7 +296,12 @@ def update_annotation(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "请选择动作类型")
     next_action_phase = update_data.get("action_phase") if "action_phase" in update_data else annotation.action_phase
     next_quality_rating = update_data.get("quality_rating") if "quality_rating" in update_data else annotation.quality_rating
-    _validate_taxonomy(str(next_action_type), next_action_phase, next_quality_rating)
+    # 学生只能维护粗标字段。历史专家字段即使来自旧版规范，也不应阻塞学生继续
+    # 修正人物框、人体点或击球接触几何；专家值会在上方被完整保留。
+    if current_user.role == UserRole.STUDENT:
+        _validate_taxonomy(str(next_action_type), None, None)
+    else:
+        _validate_taxonomy(str(next_action_type), next_action_phase, next_quality_rating)
     player_map = _player_map(batch)
     if next_selected_player_id not in player_map:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "所选选手不在当前任务元信息中")

@@ -9,5 +9,6 @@ from app.models.player import Player
 from app.models.annotation_revision import AnnotationRevision
 from app.models.adjudication_record import AdjudicationRecord
 from app.models.active_learning_round import ActiveLearningRound
+from app.models.temporal_segment import TemporalSegment
 
-__all__ = ["User", "Project", "TaskBatch", "ReviewRecord", "AuditLog", "FrameAnnotation", "BatchFrame", "Player", "AnnotationRevision", "AdjudicationRecord", "ActiveLearningRound"]
+__all__ = ["User", "Project", "TaskBatch", "ReviewRecord", "AuditLog", "FrameAnnotation", "BatchFrame", "Player", "AnnotationRevision", "AdjudicationRecord", "ActiveLearningRound", "TemporalSegment"]

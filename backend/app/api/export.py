@@ -18,6 +18,7 @@ from app.models.user import User
 from app.models.annotation import FrameAnnotation, AnnotationStatus
 from app.models.task_batch import TaskBatch, TaskStatus
 from app.models.batch_frame import BatchFrame
+from app.models.temporal_segment import TemporalSegment
 from app.schemas.export import ExportRequest, ExportOut
 from app.core.security import get_current_user
 from app.core.permissions import require_super_admin
@@ -50,6 +51,51 @@ def _gather_confirmed_annotations(db: Session, project_id: int, only_locked: boo
 
     batch_map = {b.id: b for b in batches}
     return annotations, batch_map
+
+
+def _gather_confirmed_segments(db: Session, batch_map: dict[int, TaskBatch]) -> list[dict]:
+    if not batch_map:
+        return []
+    segments = (
+        db.query(TemporalSegment)
+        .filter(
+            TemporalSegment.task_batch_id.in_(list(batch_map)),
+            TemporalSegment.status == AnnotationStatus.CONFIRMED.value,
+        )
+        .order_by(TemporalSegment.task_batch_id, TemporalSegment.start_frame)
+        .all()
+    )
+    return [
+        {
+            "segment_id": segment.id,
+            "segment_uuid": segment.uuid,
+            "task_batch_id": segment.task_batch_id,
+            "task_batch_uuid": batch_map[segment.task_batch_id].uuid,
+            "video_id": batch_map[segment.task_batch_id].video_id,
+            "capture_metadata": batch_map[segment.task_batch_id].capture_metadata,
+            "selected_player_id": segment.selected_player_id,
+            "selected_player_uuid": segment.selected_player.uuid if segment.selected_player else None,
+            "subject_code": segment.selected_player.subject_code if segment.selected_player else None,
+            "racket_hand": segment.selected_player.racket_hand if segment.selected_player else None,
+            "annotator_id": segment.annotator_id,
+            "annotator_name": segment.annotator_name,
+            "start_frame": segment.start_frame,
+            "end_frame": segment.end_frame,
+            "start_timestamp_ms": segment.start_timestamp_ms,
+            "end_timestamp_ms": segment.end_timestamp_ms,
+            "action_type": segment.action_type,
+            "action_phase": segment.action_phase,
+            "context": segment.context,
+            "execution": segment.execution,
+            "outcome": segment.outcome,
+            "evidence": segment.evidence,
+            "notes": segment.notes,
+            "status": segment.status.value if hasattr(segment.status, "value") else segment.status,
+            "confirmed_by": segment.confirmed_by,
+            "confirmed_at": segment.confirmed_at.isoformat() if segment.confirmed_at else None,
+        }
+        for segment in segments
+    ]
 
 
 def _build_frame_path_map(db: Session, batch_ids: list[int]) -> Dict[Tuple[int, int], str]:
@@ -112,6 +158,7 @@ def _to_export_json(annotations, batch_map):
             "match_name": batch.match_name if batch else None,
             "match_format": batch.match_format if batch else None,
             "match_date": batch.match_date.isoformat() if batch and batch.match_date else None,
+            "capture_metadata": batch.capture_metadata if batch else None,
             "selection_metadata": batch.selection_metadata if batch else None,
             "video_id": batch.video_id if batch else None,
             "video_sha256": batch.video_sha256 if batch else None,
@@ -128,6 +175,7 @@ def _to_export_json(annotations, batch_map):
                 "gender": player.gender,
                 "age": player.age,
                 "height_cm": player.height_cm,
+                "racket_hand": player.racket_hand,
             } if player else None),
             "keypoints": ann.keypoints,
             "bbox": [ann.box_x, ann.box_y, ann.box_w, ann.box_h],
@@ -168,7 +216,6 @@ def _records_to_coco(records: list, project_name: str, frame_path_map: Dict[Tupl
         "right_shoulder", "right_elbow", "right_wrist", "right_palm",
         "left_hip", "left_knee", "left_ankle", "left_toe",
         "right_hip", "right_knee", "right_ankle", "right_toe",
-        "racket_grip", "racket_head",
     ]
     categories = [{
         "id": 1,
@@ -179,7 +226,6 @@ def _records_to_coco(records: list, project_name: str, frame_path_map: Dict[Tupl
             [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7],
             [4, 8], [8, 9], [9, 10], [10, 11], [4, 12], [12, 13], [13, 14], [14, 15],
             [7, 16], [16, 17], [17, 18], [18, 19], [7, 20], [20, 21], [21, 22], [22, 23],
-            [14, 24], [24, 25],
         ],
     }]
     images = []
@@ -201,7 +247,7 @@ def _records_to_coco(records: list, project_name: str, frame_path_map: Dict[Tupl
             "coco_url": "",
             "date_captured": "",
         })
-        keypoints = [0.0] * (25 * 3)
+        keypoints = [0.0] * (len(kp_names) * 3)
         if isinstance(r.get("keypoints"), list):
             for kp in r["keypoints"]:
                 name = kp.get("name") if isinstance(kp, dict) else None
@@ -224,7 +270,7 @@ def _records_to_coco(records: list, project_name: str, frame_path_map: Dict[Tupl
             "category_id": 1,
             "segmentation": [],
             "keypoints": keypoints,
-            "num_keypoints": sum(1 for i in range(25) if keypoints[i * 3 + 2] > 0),
+            "num_keypoints": sum(1 for i in range(len(kp_names)) if keypoints[i * 3 + 2] > 0),
             "annotator_id": r.get("annotator_id"),
             "annotator_name": r.get("annotator_name"),
             "selected_player_id": r.get("selected_player_id"),
@@ -262,7 +308,8 @@ def _records_to_csv(records: list) -> str:
     out = io.StringIO()
     w = csv.writer(out)
     w.writerow([
-        "task_batch_id", "video_id", "frame_index", "frame_timestamp_ms", "frame_timestamp_seconds",
+        "task_batch_id", "video_id", "capture_mode", "annotation_goal", "camera_view",
+        "capture_session_id", "target_action", "frame_index", "frame_timestamp_ms", "frame_timestamp_seconds",
         "annotator_id", "annotator_name",
         "selected_player_id", "selected_player_name", "bbox",
         "action_type", "action_phase", "quality_rating", "is_forced_action",
@@ -274,9 +321,15 @@ def _records_to_csv(records: list) -> str:
         bbox_value = json.dumps(bbox, ensure_ascii=False) if isinstance(bbox, list) else ""
         contact = r.get("contact") if isinstance(r.get("contact"), dict) else {}
         uv = contact.get("contact_uv") if isinstance(contact.get("contact_uv"), dict) else {}
+        capture = r.get("capture_metadata") if isinstance(r.get("capture_metadata"), dict) else {}
         w.writerow([
             r.get("task_batch_id"),
             r.get("video_id") or "",
+            capture.get("capture_mode") or "",
+            capture.get("annotation_goal") or "",
+            capture.get("camera_view") or "",
+            capture.get("capture_session_id") or "",
+            capture.get("target_action") or "",
             r.get("frame_index"),
             r.get("frame_timestamp_ms", 0),
             r.get("frame_timestamp_seconds", 0),
@@ -313,6 +366,7 @@ def export_project(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "项目不存在")
 
     annotations, batch_map = _gather_confirmed_annotations(db, project_id, req.only_locked)
+    temporal_segments = _gather_confirmed_segments(db, batch_map)
     records = _to_export_json(annotations, batch_map)
     records, release_manifest = build_release(records, project.uuid, only_locked_batches=req.only_locked)
     frame_path_map = _build_frame_path_map(db, list(batch_map.keys()))
@@ -331,7 +385,7 @@ def export_project(
         taxonomy = load_annotation_taxonomy()
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump({
-                "schema_version": "2.0",
+                "schema_version": "2.1",
                 "project_id": project_id,
                 "project_uuid": project.uuid,
                 "project_name": project.name,
@@ -342,6 +396,8 @@ def export_project(
                 "release_manifest": release_manifest,
                 "total_annotations": len(records),
                 "annotations": records,
+                "total_temporal_segments": len(temporal_segments),
+                "temporal_segments": temporal_segments,
             }, f, ensure_ascii=False, indent=2)
     elif fmt == "coco":
         coco = _records_to_coco(records, project.name, frame_path_map)

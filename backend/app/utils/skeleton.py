@@ -18,7 +18,6 @@ SKELETON_CONNECTIONS = [
     ("left_knee", "left_ankle"), ("left_ankle", "left_toe"),
     ("pelvis_center", "right_hip"), ("right_hip", "right_knee"),
     ("right_knee", "right_ankle"), ("right_ankle", "right_toe"),
-    ("right_wrist", "racket_grip"), ("racket_grip", "racket_head"),
 ]
 
 

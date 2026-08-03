@@ -55,13 +55,37 @@ export const taskApi = {
     data: {
       match_date?: string;
       match_name?: string;
-      match_format?: 'singles' | 'doubles';
-      players?: Array<{ id?: number; uuid?: string; name?: string; subject_code?: string; gender?: 'male' | 'female'; age?: number; height_cm?: number }>;
+      match_format?: 'singles' | 'doubles' | null;
+      capture_metadata?: {
+        capture_mode: 'competition' | 'controlled_training';
+        annotation_goal: 'action_sequence' | 'technique_quality';
+        camera_view?: 'front' | 'rear' | 'left' | 'right' | 'front_left' | 'front_right' | 'rear_left' | 'rear_right' | 'other';
+        camera_height: 'low' | 'eye_level' | 'high' | 'unknown';
+        capture_session_id?: string;
+        target_action?: string;
+        marker_protocol: 'video_landmarks' | 'physical_markers';
+        recording_notes?: string;
+        source_reference?: string;
+        source_platform?: string;
+        device_model?: string;
+        recording_fps?: number;
+        recording_design?: 'natural_training' | 'prescribed_standard' | 'prescribed_variation' | 'mixed';
+        feed_method?: 'coach' | 'machine' | 'self' | 'rally' | 'unknown';
+        repetition_group_id?: string;
+        bridge_view_id?: string;
+        intended_variation?: string;
+      };
+      players?: Array<{ id?: number; uuid?: string; name?: string; subject_code?: string; gender?: 'male' | 'female'; age?: number; height_cm?: number; racket_hand?: 'left' | 'right' }>;
     },
   ) =>
     request.put(`/tasks/${batchId}/metadata`, data),
   confirmMetadata: (batchId: number) => request.post(`/tasks/${batchId}/metadata/confirm`),
   getFrames: (batchId: number) => request.get(`/tasks/${batchId}/frames`),
+  getFramePriorities: (batchId: number) => request.get(`/tasks/${batchId}/frame-priorities`),
+  getTeacherSurrogateQuality: (batchId: number) => request.get(`/tasks/${batchId}/teacher-surrogate-quality`),
+  getDataValueReport: (batchId: number) => request.get(`/tasks/${batchId}/data-value-report`),
+  reviewFrame: (batchId: number, frameIndex: number, data: { is_rejected: boolean; reason?: string }) =>
+    request.put(`/tasks/${batchId}/frame/${frameIndex}/review`, data),
   getFrameImageUrl: (batchId: number, frameIndex: number) =>
     `/tasks/${batchId}/frame/${frameIndex}/image`,
   getFrameImageBlob: (batchId: number, frameIndex: number) =>
@@ -103,6 +127,30 @@ export const annotationApi = {
   submit: (taskBatchId: number) => request.post('/annotations/submit', null, { params: { task_batch_id: taskBatchId } }),
   confirm: (data: any) => request.post('/annotations/confirm', data),
   triggerMl: (taskBatchId: number) => request.post(`/annotations/trigger-ml/${taskBatchId}`),
+}
+
+export const segmentApi = {
+  list: (taskBatchId: number, params?: any) =>
+    request.get('/segments', { params: { task_batch_id: taskBatchId, ...params } }),
+  create: (data: {
+    task_batch_id: number
+    selected_player_id: number
+    start_frame: number
+    end_frame: number
+    action_type: string
+    action_phase?: string
+    context?: Record<string, unknown>
+    execution?: Record<string, unknown>
+    outcome?: Record<string, unknown>
+    evidence?: Record<string, unknown>
+    notes?: string
+  }) => request.post('/segments', data),
+  update: (id: number, data: any) => request.put(`/segments/${id}`, data),
+  delete: (id: number) => request.delete(`/segments/${id}`),
+  submit: (taskBatchId: number) =>
+    request.post('/segments/submit', null, { params: { task_batch_id: taskBatchId } }),
+  confirm: (segmentIds: number[]) =>
+    request.post('/segments/confirm', { segment_ids: segmentIds }),
 }
 
 export const reviewApi = {

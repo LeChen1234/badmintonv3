@@ -6,7 +6,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import model_validator
 from typing import List
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+def _resolve_project_root() -> Path:
+    """Locate the repository/runtime root in both source and Docker layouts."""
+    config_file = Path(__file__).resolve()
+    source_root = config_file.parents[2]
+    runtime_root = config_file.parents[1]
+    if (source_root / "config").is_dir():
+        return source_root
+    if (runtime_root / "config").is_dir():
+        return runtime_root
+    return source_root
+
+
+PROJECT_ROOT = _resolve_project_root()
 
 
 class Settings(BaseSettings):
@@ -50,10 +62,10 @@ class Settings(BaseSettings):
     BOOTSTRAP_ADMIN_PASSWORD: str = ""
 
     # Hybrid multi-person pose assistance. All values can be overridden by .env.
-    POSE_YOLO_MODEL: str = "yolov8n-pose.pt"
+    POSE_YOLO_MODEL: str = "yolov8m-pose.pt"
     POSE_YOLO_CONFIDENCE: float = 0.12
     POSE_YOLO_IOU: float = 0.55
-    POSE_YOLO_IMAGE_SIZE: int = 1280
+    POSE_YOLO_IMAGE_SIZE: int = 960
     POSE_MAX_PERSONS: int = 20
     POSE_ENABLE_TILING: bool = True
     POSE_TILE_MIN_SIDE: int = 1080
@@ -61,6 +73,7 @@ class Settings(BaseSettings):
     POSE_DEDUP_CONTAINMENT: float = 0.72
     POSE_DEDUP_KEYPOINT_DISTANCE: float = 0.10
     POSE_BOX_MAX_PERSONS: int = 1
+    POSE_BOX_PADDING_RATIO: float = 0.15
 
     @model_validator(mode="after")
     def validate_production_security(self):

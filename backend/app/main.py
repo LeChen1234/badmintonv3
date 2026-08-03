@@ -15,7 +15,7 @@ from app.core.security import hash_password
 from app.services.backup_service import BackupScheduler, create_backup_snapshot
 from app.services.taxonomy_service import load_annotation_taxonomy
 
-from app.api import auth, users, projects, tasks, annotations, review, progress, export, research
+from app.api import auth, users, projects, tasks, annotations, review, progress, export, research, segments
 
 
 logger = logging.getLogger(__name__)
@@ -85,6 +85,8 @@ def _ensure_contact_annotation_columns() -> None:
         if player_rows and "subject_code" not in player_columns:
             conn.exec_driver_sql("ALTER TABLE players ADD COLUMN subject_code VARCHAR(64)")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_players_subject_code ON players (subject_code)")
+        if player_rows and "racket_hand" not in player_columns:
+            conn.exec_driver_sql("ALTER TABLE players ADD COLUMN racket_hand VARCHAR(8)")
         task_rows = conn.exec_driver_sql("PRAGMA table_info(task_batches)").fetchall()
         task_columns = {row[1] for row in task_rows}
         if task_rows and "secondary_assigned_to" not in task_columns:
@@ -105,6 +107,16 @@ def _ensure_contact_annotation_columns() -> None:
         frame_columns = {row[1] for row in frame_rows}
         if frame_rows and "timestamp_ms" not in frame_columns:
             conn.exec_driver_sql("ALTER TABLE batch_frames ADD COLUMN timestamp_ms BIGINT NOT NULL DEFAULT 0")
+        if frame_rows and "is_rejected" not in frame_columns:
+            conn.exec_driver_sql("ALTER TABLE batch_frames ADD COLUMN is_rejected BOOLEAN NOT NULL DEFAULT 0")
+        if frame_rows and "rejection_reason" not in frame_columns:
+            conn.exec_driver_sql("ALTER TABLE batch_frames ADD COLUMN rejection_reason VARCHAR(64)")
+        if frame_rows and "selection_score" not in frame_columns:
+            conn.exec_driver_sql("ALTER TABLE batch_frames ADD COLUMN selection_score FLOAT NOT NULL DEFAULT 0")
+        if frame_rows and "selection_components" not in frame_columns:
+            conn.exec_driver_sql("ALTER TABLE batch_frames ADD COLUMN selection_components JSON")
+        if frame_rows and "selection_strategy_version" not in frame_columns:
+            conn.exec_driver_sql("ALTER TABLE batch_frames ADD COLUMN selection_strategy_version VARCHAR(64)")
 
 
 def _ensure_yolo_pose_model() -> None:
@@ -227,6 +239,7 @@ app.include_router(users.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(annotations.router, prefix="/api")
+app.include_router(segments.router, prefix="/api")
 app.include_router(review.router, prefix="/api")
 app.include_router(progress.router, prefix="/api")
 app.include_router(export.router, prefix="/api")

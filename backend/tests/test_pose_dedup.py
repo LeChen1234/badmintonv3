@@ -1,6 +1,11 @@
 import unittest
 
-from app.services.pose_service import _intersection_over_smaller, _nms, _normalized_pose_distance
+from app.services.pose_service import (
+    _intersection_over_smaller,
+    _nms,
+    _normalized_pose_distance,
+    _select_candidates_for_box,
+)
 
 
 def candidate(box, offset=0.0, confidence=0.9):
@@ -36,6 +41,14 @@ class PoseDedupTest(unittest.TestCase):
 
         self.assertEqual(_normalized_pose_distance(first, second), float("inf"))
         self.assertEqual(len(_nms([first, second])), 2)
+
+    def test_manual_box_overlap_wins_over_detection_confidence(self):
+        intended = candidate([100, 100, 200, 300], confidence=0.72)
+        nearby = candidate([210, 90, 310, 300], confidence=0.98)
+
+        selected = _select_candidates_for_box([nearby, intended], [90, 90, 205, 310], 1)
+
+        self.assertEqual(selected, [intended])
 
 
 if __name__ == "__main__":

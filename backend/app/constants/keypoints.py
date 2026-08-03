@@ -1,4 +1,4 @@
-"""25 个人体关键点名称（与前端、COCO 导出一致）"""
+"""23 个人体关键点名称（球拍与击球点使用独立接触几何标注）。"""
 
 KEYPOINT_NAMES = (
     "head_top",
@@ -24,6 +24,4 @@ KEYPOINT_NAMES = (
     "right_knee",
     "right_ankle",
     "right_toe",
-    "racket_grip",
-    "racket_head",
 )

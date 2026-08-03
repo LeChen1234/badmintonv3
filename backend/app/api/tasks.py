@@ -9,6 +9,7 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -22,6 +23,11 @@ from app.models.task_batch import MediaProcessStatus, TaskBatch, TaskStatus
 from app.models.user import User, UserRole
 from app.schemas.task_batch import TaskBatchCreate, TaskBatchMediaProcessOut, TaskBatchMetadataUpdate, TaskBatchOut, TaskBatchUpdate
 from app.services import task_service
+from app.services.capture_protocol_service import (
+    capture_protocol_advisory,
+    normalize_capture_metadata,
+    validate_capture_protocol,
+)
 from app.services.upload_service import (
     ALLOWED_IMAGE_EXT,
     ALLOWED_VIDEO_EXT,
@@ -36,6 +42,11 @@ from app.services.upload_service import (
 
 router = APIRouter(prefix="/tasks", tags=["任务管理"])
 logger = logging.getLogger(__name__)
+
+
+class FrameReviewUpdate(BaseModel):
+    is_rejected: bool
+    reason: Optional[str] = Field(default=None, max_length=64)
 
 
 def _register_video_identity(db: Session, batch: TaskBatch, video_path: Path, filename: str) -> None:
@@ -66,6 +77,7 @@ def _enrich_batch(batch: TaskBatch) -> TaskBatchOut:
             "gender": p.gender,
             "age": p.age,
             "height_cm": p.height_cm,
+            "racket_hand": p.racket_hand,
         }
         for p in (batch.players or [])
     ]
@@ -92,6 +104,8 @@ def _enrich_batch(batch: TaskBatch) -> TaskBatchOut:
         match_date=batch.match_date,
         match_name=batch.match_name,
         match_format=batch.match_format,
+        capture_metadata=normalize_capture_metadata(batch.capture_metadata, match_format=batch.match_format),
+        capture_protocol_advisory=capture_protocol_advisory(batch.capture_metadata, match_format=batch.match_format),
         players=players,
         metadata_confirmed=batch.metadata_confirmed,
         metadata_confirmed_at=batch.metadata_confirmed_at,
@@ -124,6 +138,7 @@ def _normalize_players(players_input: Optional[List[dict]]) -> List[dict]:
                 "gender": item.get("gender") if item.get("gender") in ("male", "female") else None,
                 "age": item.get("age") if isinstance(item.get("age"), int) and 1 <= item.get("age") <= 99 else None,
                 "height_cm": item.get("height_cm") if isinstance(item.get("height_cm"), int) and 80 <= item.get("height_cm") <= 260 else None,
+                "racket_hand": item.get("racket_hand") if item.get("racket_hand") in ("left", "right") else None,
             }
         )
     return normalized
@@ -145,6 +160,7 @@ def _sync_batch_players(db: Session, batch: TaskBatch, players_input: Optional[L
                 gender=item.get("gender"),
                 age=item.get("age"),
                 height_cm=item.get("height_cm"),
+                racket_hand=item.get("racket_hand"),
             )
             db.add(player)
             db.flush()
@@ -154,6 +170,7 @@ def _sync_batch_players(db: Session, batch: TaskBatch, players_input: Optional[L
             player.gender = item.get("gender")
             player.age = item.get("age")
             player.height_cm = item.get("height_cm")
+            player.racket_hand = item.get("racket_hand")
         keep_ids.add(player.id)
 
     for player in list(batch.players or []):
@@ -343,6 +360,11 @@ def update_batch_metadata(
         batch.match_name = new_match_name
     if "match_format" in update_data:
         batch.match_format = update_data.get("match_format")
+    if "capture_metadata" in update_data:
+        batch.capture_metadata = normalize_capture_metadata(
+            update_data.get("capture_metadata"),
+            match_format=batch.match_format,
+        )
 
     if batch.match_name and not batch.match_uuid:
         batch.match_uuid = str(uuid4())
@@ -374,21 +396,23 @@ def confirm_batch_metadata(
     if batch.status == TaskStatus.LOCKED:
         raise HTTPException(status.HTTP_409_CONFLICT, "任务已锁定，元数据不可重新确认")
 
-    if not batch.match_name:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先填写比赛名称")
-
-    if not batch.match_date:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先选择比赛日期")
-
     players = [{"name": p.name} for p in (batch.players or [])]
-    expected_players = 2 if batch.match_format == "singles" else 4 if batch.match_format == "doubles" else 0
-    if not expected_players:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请选择比赛类型：单打或双打")
-    if len(players) != expected_players:
-        label = "单打" if batch.match_format == "singles" else "双打"
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{label}比赛必须填写 {expected_players} 名运动员")
+    protocol_errors = validate_capture_protocol(
+        capture_metadata=batch.capture_metadata,
+        match_format=batch.match_format,
+        match_name=batch.match_name,
+        match_date=batch.match_date,
+        player_count=len(players),
+    )
     if any(not (p.get("name") or "").strip() for p in players):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "选手名称为必填项")
+        protocol_errors.append("运动员或受试者名称为必填项")
+    if protocol_errors:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "；".join(protocol_errors))
+
+    batch.capture_metadata = normalize_capture_metadata(
+        batch.capture_metadata,
+        match_format=batch.match_format,
+    )
 
     if batch.match_name and not batch.match_uuid:
         batch.match_uuid = str(uuid4())
@@ -591,9 +615,95 @@ def list_frames(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该任务")
     frames = db.query(BatchFrame).filter(BatchFrame.task_batch_id == batch_id).order_by(BatchFrame.frame_index).all()
     return [
-        {"frame_index": frame.frame_index, "file_path": frame.file_path, "timestamp_ms": frame.timestamp_ms}
+        {"frame_index": frame.frame_index, "file_path": frame.file_path, "timestamp_ms": frame.timestamp_ms,
+         "is_rejected": bool(frame.is_rejected), "rejection_reason": frame.rejection_reason,
+         "selection_score": frame.selection_score, "selection_components": frame.selection_components,
+         "selection_strategy_version": frame.selection_strategy_version}
         for frame in frames
     ]
+
+
+@router.get("/{batch_id}/frame-priorities")
+def list_frame_priorities(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """返回可解释的 Influence-Lite 价值/成本优先队列。"""
+    batch = task_service.get_task_batch(db, batch_id)
+    if not batch:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
+    if not _can_access_batch(current_user, batch):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该任务")
+    from app.services.influence_lite_service import score_batch_frames
+    priorities = score_batch_frames(db, batch)
+    return {
+        "task_batch_id": batch_id,
+        "version": "influence-lite-v1",
+        "items": priorities,
+        "note": "当前为可解释代理影响；训练任务写入 gradient_influence 后自动切换为梯度融合模式。",
+    }
+
+
+@router.get("/{batch_id}/teacher-surrogate-quality")
+def teacher_surrogate_quality(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Analyze dataset quality using a calibrated-or-explicitly-uncalibrated teacher surrogate."""
+    batch = task_service.get_task_batch(db, batch_id)
+    if not batch:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
+    if not _can_access_batch(current_user, batch):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该任务")
+    from app.services.teacher_surrogate_service import analyze_batch
+    return analyze_batch(db, batch)
+
+
+@router.get("/{batch_id}/data-value-report")
+def data_value_report(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return layered difficulty, quality-risk and provisional value evidence."""
+    batch = task_service.get_task_batch(db, batch_id)
+    if not batch:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
+    if not _can_access_batch(current_user, batch):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该任务")
+    from app.services.data_value_service import build_data_value_report
+    return build_data_value_report(db, batch)
+
+
+@router.put("/{batch_id}/frame/{frame_index}/review")
+def review_frame(
+    batch_id: int,
+    frame_index: int,
+    data: FrameReviewUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """标记重复、模糊或无标注价值的垃圾帧；保留原图以便审计和恢复。"""
+    batch = task_service.get_task_batch(db, batch_id)
+    if not batch:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务批次不存在")
+    if not _can_access_batch(current_user, batch):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "无权维护该任务帧")
+    if batch.status == TaskStatus.LOCKED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "任务已锁定，帧状态不可修改")
+    frame = db.query(BatchFrame).filter(
+        BatchFrame.task_batch_id == batch_id,
+        BatchFrame.frame_index == frame_index,
+    ).first()
+    if not frame:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该帧不存在")
+    frame.is_rejected = data.is_rejected
+    frame.rejection_reason = ((data.reason or "").strip() or "no_value") if data.is_rejected else None
+    db.commit()
+    return {"frame_index": frame.frame_index, "is_rejected": frame.is_rejected,
+            "rejection_reason": frame.rejection_reason}
 
 
 @router.get("/{batch_id}/frame/{frame_index}/image")

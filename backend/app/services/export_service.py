@@ -27,7 +27,6 @@ def convert_to_coco(annotations: List[Dict]) -> Dict:
             "right_shoulder", "right_elbow", "right_wrist", "right_palm",
             "left_hip", "left_knee", "left_ankle", "left_toe",
             "right_hip", "right_knee", "right_ankle", "right_toe",
-            "racket_grip", "racket_head",
         ],
         "skeleton": [
             [0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6],
@@ -35,7 +34,6 @@ def convert_to_coco(annotations: List[Dict]) -> Dict:
             [3, 11], [11, 12], [12, 13], [13, 14],
             [6, 15], [15, 16], [16, 17], [17, 18],
             [6, 19], [19, 20], [20, 21], [21, 22],
-            [13, 23], [23, 24],
         ],
     }]
 
@@ -51,7 +49,8 @@ def convert_to_coco(annotations: List[Dict]) -> Dict:
         })
 
         for annotation in task.get("annotations", []):
-            keypoints = [0.0] * (25 * 3)
+            keypoint_count = len(categories[0]["keypoints"])
+            keypoints = [0.0] * (keypoint_count * 3)
             action_type = None
             action_phase = None
             quality = None
@@ -91,7 +90,7 @@ def convert_to_coco(annotations: List[Dict]) -> Dict:
                 "image_id": img_id,
                 "category_id": 1,
                 "keypoints": keypoints,
-                "num_keypoints": sum(1 for i in range(25) if keypoints[i * 3 + 2] > 0),
+                "num_keypoints": sum(1 for i in range(keypoint_count) if keypoints[i * 3 + 2] > 0),
                 "action_type": action_type,
                 "action_phase": action_phase,
                 "quality_rating": quality,
@@ -117,7 +116,6 @@ def convert_to_csv(annotations: List[Dict]) -> str:
         "right_shoulder", "right_elbow", "right_wrist", "right_palm",
         "left_hip", "left_knee", "left_ankle", "left_toe",
         "right_hip", "right_knee", "right_ankle", "right_toe",
-        "racket_grip", "racket_head",
     ]
 
     header = ["image"]

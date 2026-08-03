@@ -144,7 +144,7 @@ def extract_and_filter_video(
     *,
     target_fps: float = 10.0,
     motion_percentile: Optional[float] = None,
-    min_people: int = 2,
+    min_people: int = 1,
     min_shared_joints: int = 8,
     max_frames: int = 2000,
     progress_callback: Optional[ProgressCallback] = None,
@@ -228,7 +228,9 @@ def extract_and_filter_video(
             current_time = frame_count / original_fps
             if current_time >= next_process_time:
                 # YOLO 推理
-                results = model.predict(frame, conf=0.5, verbose=False)
+                # Pre-filtering should favor recall. Missing a distant player destroys
+                # temporal continuity and cannot be recovered by a later threshold.
+                results = model.predict(frame, conf=0.25, verbose=False)
                 kpts_list: list = []
                 if results[0].keypoints is not None and len(results[0].keypoints) > 0:
                     raw = results[0].keypoints.xy.cpu().numpy()
@@ -270,26 +272,61 @@ def extract_and_filter_video(
         information_rows = score_motion_sequence(raw_motion, weights=information_weights)
         information_scores = [row["score"] for row in information_rows]
         threshold = _percentile(information_scores, motion_percentile)
-        selected_indices = set(diverse_indices(information_scores, threshold, min_gap=2))
+        key_indices = set(diverse_indices(information_scores, threshold, min_gap=2))
+        # 动作与击球接触不能只靠孤立静态帧判断：为每个高信息关键帧保留紧邻候选，
+        # 使标注端能查看前后连续上下文。
+        selected_indices = {
+            neighbor
+            for index in key_indices
+            for neighbor in (index - 1, index, index + 1)
+            if 0 <= neighbor < len(candidate_paths_and_scores)
+        }
+        # Keep a wider, chronological candidate window on disk.  Only the inner
+        # window is active initially; outer candidates are imported as filtered
+        # frames so users can restore them by timestamp without re-running video
+        # processing.  This is deliberately simple and auditable.
+        chosen_selected = set(sorted(selected_indices)[:max_frames])
+        retained_indices = {
+            neighbor
+            for index in chosen_selected
+            for neighbor in range(index - 5, index + 6)
+            if 0 <= neighbor < len(candidate_paths_and_scores)
+        }
+        filtered_indices = retained_indices - chosen_selected
+        if len(filtered_indices) > max_frames * 2:
+            filtered_indices = set(sorted(
+                filtered_indices,
+                key=lambda candidate: (
+                    min(abs(candidate - selected) for selected in chosen_selected),
+                    candidate,
+                ),
+            )[:max_frames * 2])
+        retained_indices = chosen_selected | filtered_indices
         logger.info(
             "yolo_preprocess: frame selection completed percentile=P%.1f threshold=%.3f candidates=%d selected=%d",
             motion_percentile,
             threshold,
             len(candidate_paths_and_scores),
-            len(selected_indices),
+            len(chosen_selected),
         )
 
         for zero_index, (cand_path, _raw_score, timestamp_ms) in enumerate(candidate_paths_and_scores):
             current_idx = zero_index + 1
             if progress_callback:
                 progress_callback("filter", current_idx, len(candidate_paths_and_scores))
-            if zero_index not in selected_indices:
+            if zero_index not in retained_indices:
                 continue
-            out_path = out_dir / f"frame_{len(saved):08d}_t{timestamp_ms}.jpg"
+            info = information_rows[zero_index]
+            is_key = 1 if zero_index in key_indices else 0
+            initially_filtered = 0 if zero_index in chosen_selected else 1
+            out_path = out_dir / (
+                f"frame_{len(saved):08d}_t{timestamp_ms}"
+                f"_q{info['score']:.4f}_m{info['motion']:.4f}_e{info['entropy']:.4f}"
+                f"_s{info['spectral']:.4f}_c{info['calculus']:.4f}_k{is_key}"
+                f"_r{initially_filtered}.jpg"
+            )
             shutil.move(str(cand_path), str(out_path))
             saved.append(out_path)
-            if len(saved) >= max_frames:
-                break
 
         if progress_callback and candidate_paths_and_scores:
             progress_callback("filter", len(candidate_paths_and_scores), len(candidate_paths_and_scores))
@@ -325,6 +362,7 @@ def _plain_extract(
         out_idx = 0
         saved: List[Path] = []
         last_progress_tick = 0.0
+        previous_thumbnail = None
 
         while cap.isOpened() and out_idx < max_frames:
             ok, frame = cap.read()
@@ -340,10 +378,24 @@ def _plain_extract(
 
             current_time = frame_count / original_fps
             if current_time >= next_process_time:
+                thumbnail = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (64, 36))
+                mean_delta = 20.0
+                # 静止画面或解码重复帧不重复写入；阈值只去掉几乎无变化的帧。
+                if previous_thumbnail is not None:
+                    mean_delta = float(cv2.absdiff(thumbnail, previous_thumbnail).mean())
+                    if mean_delta < 1.0:
+                        next_process_time += time_interval
+                        frame_count += 1
+                        continue
                 timestamp_ms = int(round(current_time * 1000))
-                out_path = out_dir / f"frame_{out_idx:08d}_t{timestamp_ms}.jpg"
+                motion_proxy = min(1.0, mean_delta / 20.0)
+                out_path = out_dir / (
+                    f"frame_{out_idx:08d}_t{timestamp_ms}_q{motion_proxy:.4f}"
+                    f"_m{motion_proxy:.4f}_e0.0000_s0.0000_c0.0000_k0.jpg"
+                )
                 cv2.imwrite(str(out_path), frame)
                 saved.append(out_path)
+                previous_thumbnail = thumbnail
                 out_idx += 1
                 next_process_time += time_interval
             frame_count += 1

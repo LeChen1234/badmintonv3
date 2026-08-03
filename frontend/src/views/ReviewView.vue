@@ -51,7 +51,7 @@
         <el-table-column prop="player_name" label="人员" width="110" />
         <el-table-column label="学生粗标" min-width="170">
           <template #default="{ row }">
-            {{ row.coarse_context.action_type || '未分类' }} · 可见点 {{ row.coarse_context.visible_keypoints }}/25
+            {{ row.coarse_context.action_type || '未分类' }} · 可见点 {{ row.coarse_context.visible_keypoints }}/23
           </template>
         </el-table-column>
         <el-table-column label="需要专家判定" min-width="260">

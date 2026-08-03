@@ -49,6 +49,7 @@ class TaskBatch(Base):
     media_process_finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     match_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     match_format: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    capture_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     match_uuid: Mapped[Optional[str]] = mapped_column(String(36), unique=True, index=True, nullable=True)
     match_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     metadata_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -68,3 +69,4 @@ class TaskBatch(Base):
     annotations = relationship("FrameAnnotation", back_populates="task_batch", cascade="all, delete-orphan")
     batch_frames = relationship("BatchFrame", back_populates="task_batch", cascade="all, delete-orphan", order_by="BatchFrame.frame_index")
     players = relationship("Player", back_populates="task_batch", cascade="all, delete-orphan")
+    temporal_segments = relationship("TemporalSegment", back_populates="task_batch", cascade="all, delete-orphan", order_by="TemporalSegment.start_frame")

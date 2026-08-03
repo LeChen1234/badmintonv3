@@ -1,4 +1,4 @@
-/** 25 个人体关键点名称（与后端 COCO 导出一致） */
+/** 23 个人体关键点名称；球拍与击球点使用独立接触几何标注。 */
 export const KEYPOINT_NAMES = [
   'head_top',
   'head_center',
@@ -23,8 +23,6 @@ export const KEYPOINT_NAMES = [
   'right_knee',
   'right_ankle',
   'right_toe',
-  'racket_grip',
-  'racket_head',
 ] as const
 
 /** 骨架连线（关键点索引对） */
@@ -34,7 +32,6 @@ export const SKELETON_EDGES: [number, number][] = [
   [3, 11], [11, 12], [12, 13], [13, 14],
   [6, 15], [15, 16], [16, 17], [17, 18],
   [6, 19], [19, 20], [20, 21], [21, 22],
-  [13, 23], [23, 24],
 ]
 
 /** 各关键点按部位分色（索引与 KEYPOINT_NAMES 一致） */
@@ -45,7 +42,6 @@ export const KEYPOINT_COLORS: string[] = [
   '#9B59B6', '#9B59B6', '#9B59B6', '#9B59B6', // 右臂: 肩/肘/腕/掌
   '#F39C12', '#F39C12', '#F39C12', '#F39C12', // 左腿: 髋/膝/踝/脚尖
   '#1ABC9C', '#1ABC9C', '#1ABC9C', '#1ABC9C', // 右腿: 髋/膝/踝/脚尖
-  '#E67E22', '#E67E22',                       // 球拍: 拍柄/拍头
 ]
 
 /** 关键点中文标签 */
@@ -73,8 +69,6 @@ export const KEYPOINT_LABELS: Record<string, string> = {
   right_knee: '右膝',
   right_ankle: '右踝',
   right_toe: '右脚尖',
-  racket_grip: '拍柄',
-  racket_head: '拍头',
 }
 
 export interface KeypointItem {

@@ -13,6 +13,14 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?BOOTSTRAP_ADMIN_PASSWORD is required}
       ALLOW_PUBLIC_REGISTER: ${ALLOW_PUBLIC_REGISTER:-false}
       ENABLE_ML_BACKEND: ${ENABLE_ML_BACKEND:-false}
+      POSE_YOLO_MODEL: ${POSE_YOLO_MODEL:-yolov8m-pose.pt}
+      POSE_YOLO_IMAGE_SIZE: ${POSE_YOLO_IMAGE_SIZE:-960}
+      POSE_BOX_PADDING_RATIO: ${POSE_BOX_PADDING_RATIO:-0.15}
+      DATA_DIR: /app/data
+      SQLITE_DB_PATH: /app/data/badminton.db
+      EXPORT_DIR: /app/data/exports
+      UPLOAD_DIR: /app/data/uploads
+      BACKUP_DIR: /app/data/backups
     volumes:
       - backend_data:/app/data
     ports:
@@ -34,7 +42,7 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "8080:80"
+      - "${FRONTEND_PORT:-80}:80"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
       interval: 15s

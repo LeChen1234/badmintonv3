@@ -25,6 +25,30 @@
       "entropy": 0.25,
       "spectral": 0.20,
       "calculus": 0.15
+    },
+    "influence_lite": {
+      "version": "influence-lite-v1",
+      "sample_unit": "player_temporal_clip",
+      "cold_start_until_completion_ratio": 0.20,
+      "cold_start_weights": {"temporal_novelty": 0.50, "uncertainty": 0.15, "class_rarity": 0.25, "correction": 0.10},
+      "model_guided_weights": {"temporal_novelty": 0.25, "uncertainty": 0.35, "class_rarity": 0.25, "correction": 0.15},
+      "gradient_blend_weight": 0.50,
+      "cost_adjustment": "influence/sqrt(seconds/45)",
+      "automatic_deletion": false
+    },
+    "teacher_surrogate": {
+      "version": "teacher-surrogate-v1",
+      "minimum_paired_teacher_samples": 10,
+      "minimum_pairs_per_class": 2,
+      "uncalibrated_prior_shrinkage": 0.12,
+      "quality_risk_weights": {
+        "label_conflict": 0.35,
+        "model_gap": 0.25,
+        "temporal_jump": 0.25,
+        "redundancy": 0.15
+      },
+      "never_treat_entropy_alone_as_bad_data": true,
+      "automatic_deletion": false
     }
   }
 }
