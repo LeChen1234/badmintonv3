@@ -20,6 +20,7 @@ def list_users(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_roles([UserRole.ADMIN, UserRole.EXPERT, UserRole.LEADER])(current_user)
     q = db.query(User)
     if role:
         q = q.filter(User.role == role)
@@ -58,6 +59,7 @@ def get_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_roles([UserRole.ADMIN, UserRole.EXPERT, UserRole.LEADER])(current_user)
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "用户不存在")

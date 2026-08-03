@@ -55,7 +55,7 @@ const projects = ref<any[]>([])
 const loading = ref(false)
 const showDialog = ref(false)
 const authStore = useAuthStore()
-const canDeleteProjects = computed(() => authStore.user?.role === 'super_admin')
+const canDeleteProjects = computed(() => authStore.user?.role === 'super_admin' && authStore.workspaceRole === 'super_admin')
 const form = reactive({
   name: '',
   description: '',

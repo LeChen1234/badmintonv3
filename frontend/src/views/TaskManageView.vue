@@ -8,7 +8,7 @@
             <el-select v-model="filterProject" placeholder="按项目筛选" clearable style="width: 200px; margin-right: 12px;">
               <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
             </el-select>
-            <el-button type="primary" @click="showCreateDialog = true">新建任务批次</el-button>
+            <el-button v-if="canConfigureTasks" type="primary" @click="showCreateDialog = true">新建任务批次</el-button>
           </div>
         </div>
       </template>
@@ -33,8 +33,8 @@
         </el-table-column>
         <el-table-column label="操作" width="380">
           <template #default="{ row }">
-            <el-button size="small" @click="openAssign(row)">分配</el-button>
-            <el-button size="small" type="warning" @click="triggerMl(row.id)"
+            <el-button v-if="canConfigureTasks" size="small" @click="openAssign(row)">分配</el-button>
+            <el-button v-if="canConfigureTasks" size="small" type="warning" @click="triggerMl(row.id)"
               :disabled="!mlEnabled" :title="mlEnabled ? '模型预标注' : '模型预标注服务未启用'">
               ML 初标(可选)
             </el-button>
@@ -101,11 +101,16 @@ import { taskApi, projectApi, userApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/api/request'
+import { workspaceAtLeast } from '@/constants/workspaces'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const mlEnabled = ref(false)
-const canDeleteBatches = computed(() => authStore.user?.role === 'super_admin')
+const canDeleteBatches = computed(() => authStore.user?.role === 'super_admin' && authStore.workspaceRole === 'super_admin')
+const canConfigureTasks = computed(() =>
+  workspaceAtLeast(authStore.workspaceRole, 'leader')
+  && ['super_admin', 'admin', 'expert', 'leader'].includes(authStore.user?.role || ''),
+)
 
 const tasks = ref<any[]>([])
 const projects = ref<any[]>([])
@@ -226,7 +231,12 @@ async function checkMlEnabled() {
 }
 
 watch(filterProject, loadTasks)
-onMounted(() => { loadTasks(); loadProjects(); loadStudents(); checkMlEnabled() })
+onMounted(() => {
+  loadTasks()
+  loadProjects()
+  if (canConfigureTasks.value) loadStudents()
+  checkMlEnabled()
+})
 </script>
 
 <style scoped>

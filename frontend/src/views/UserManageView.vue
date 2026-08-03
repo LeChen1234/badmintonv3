@@ -48,7 +48,7 @@
         <el-form-item label="角色">
           <el-select v-model="form.role">
             <el-option label="管理员" value="admin" />
-            <el-option label="超级管理员" value="super_admin" />
+            <el-option v-if="canManageSuperAdmins" label="超级管理员" value="super_admin" />
             <el-option label="标注专家" value="expert" />
             <el-option label="标注组长" value="leader" />
             <el-option label="学生标注员" value="student" />
@@ -75,8 +75,9 @@ const showCreateDialog = ref(false)
 const editingUser = ref<any>(null)
 const form = reactive({ username: '', display_name: '', password: '', role: 'student' })
 const authStore = useAuthStore()
-const canManageUsers = computed(() => authStore.user?.role === 'super_admin')
-const canDeleteUsers = computed(() => authStore.user?.role === 'super_admin')
+const canManageUsers = computed(() => ['super_admin', 'admin'].includes(authStore.user?.role || ''))
+const canManageSuperAdmins = computed(() => authStore.user?.role === 'super_admin' && authStore.workspaceRole === 'super_admin')
+const canDeleteUsers = computed(() => authStore.user?.role === 'super_admin' && authStore.workspaceRole === 'super_admin')
 
 const roleMap: Record<string, string> = { super_admin: '超级管理员', admin: '管理员', expert: '专家', leader: '组长', student: '学生' }
 const roleLabel = (r: string) => roleMap[r] || r
@@ -93,6 +94,10 @@ async function loadUsers() {
 }
 
 function editUser(user: any) {
+  if (!canManageSuperAdmins.value && user.role === 'super_admin') {
+    ElMessage.warning('只有超级管理员可以修改超级管理员账号')
+    return
+  }
   editingUser.value = user
   Object.assign(form, { username: user.username, display_name: user.display_name, password: '', role: user.role })
   showCreateDialog.value = true

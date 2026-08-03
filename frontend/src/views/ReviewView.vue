@@ -5,11 +5,11 @@
         <div class="card-header">
           <span>审核流程</span>
           <div>
-            <el-button type="warning" @click="openExpertQueue">专家判定队列（{{ expertPendingCount }}）</el-button>
+            <el-button v-if="canExpertReview" type="warning" @click="openExpertQueue">专家判定队列（{{ expertPendingCount }}）</el-button>
             <el-select v-model="statusFilter" placeholder="按状态筛选" clearable style="width: 180px; margin-left: 10px">
             <el-option label="自核中" value="self_review" />
             <el-option label="组长核对" value="leader_review" />
-            <el-option label="专家终审" value="expert_review" />
+            <el-option v-if="canExpertReview" label="专家终审" value="expert_review" />
           </el-select>
           </div>
         </div>
@@ -31,13 +31,13 @@
             <template v-if="row.status === 'self_review'">
               <el-button size="small" type="primary" @click="submitReview(row.id)">自核通过</el-button>
             </template>
-            <template v-if="['leader_review', 'expert_review'].includes(row.status)">
+            <template v-if="row.status === 'leader_review' || (row.status === 'expert_review' && canExpertReview)">
               <el-button size="small" type="success" @click="approve(row.id)">通过</el-button>
               <el-button size="small" type="danger" @click="openReject(row.id)">打回</el-button>
             </template>
             <el-button size="small" @click="showHistory(row.id)">历史</el-button>
             <el-button size="small" type="warning" @click="showAgreement(row.id)">一致性</el-button>
-            <el-button v-if="row.status === 'expert_review'" size="small" type="danger" @click="openAdjudication(row.id)">专家裁决</el-button>
+            <el-button v-if="row.status === 'expert_review' && canExpertReview" size="small" type="danger" @click="openAdjudication(row.id)">专家裁决</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -141,12 +141,20 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { taskApi, reviewApi } from '@/api'
 import { ElMessage } from 'element-plus'
+import { useAuthStore } from '@/stores/auth'
+import { workspaceAtLeast } from '@/constants/workspaces'
 
 const tasks = ref<any[]>([])
 const router = useRouter()
+const route = useRoute()
+const authStore = useAuthStore()
+const canExpertReview = computed(() =>
+  workspaceAtLeast(authStore.workspaceRole, 'expert')
+  && ['super_admin', 'admin', 'expert'].includes(authStore.user?.role || ''),
+)
 const showExpertQueue = ref(false)
 const expertQueue = ref<any[]>([])
 const expertPendingCount = ref(0)
@@ -305,9 +313,12 @@ async function submitAdjudication() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadTasks()
-  loadExpertQueue()
+  if (canExpertReview.value) {
+    await loadExpertQueue()
+    if (route.query.panel === 'expert') showExpertQueue.value = true
+  }
 })
 </script>
 

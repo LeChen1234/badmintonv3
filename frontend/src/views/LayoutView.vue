@@ -3,12 +3,17 @@
     <el-aside width="220px" class="layout-aside">
       <div class="logo">
         <span>羽毛球标注系统</span>
+        <small>{{ workspaceLabel }}工作台</small>
       </div>
       <el-menu :default-active="route.path" router class="aside-menu" background-color="#001529"
         text-color="#ffffffa6" active-text-color="#fff">
+        <el-menu-item :index="currentWorkspacePath">
+          <el-icon><House /></el-icon>
+          <span>{{ workspaceLabel }}工作台</span>
+        </el-menu-item>
         <el-menu-item index="/dashboard">
           <el-icon><DataAnalysis /></el-icon>
-          <span>总览仪表盘</span>
+          <span>{{ canAtLeast('leader') ? '总览仪表盘' : '个人总览' }}</span>
         </el-menu-item>
         <el-menu-item index="/users" v-if="canManageUsers">
           <el-icon><User /></el-icon>
@@ -22,11 +27,11 @@
           <el-icon><List /></el-icon>
           <span>任务管理</span>
         </el-menu-item>
-        <el-menu-item index="/progress">
+        <el-menu-item index="/progress" v-if="canAtLeast('leader')">
           <el-icon><TrendCharts /></el-icon>
           <span>进度监控</span>
         </el-menu-item>
-        <el-menu-item index="/review">
+        <el-menu-item index="/review" v-if="canAtLeast('leader')">
           <el-icon><Finished /></el-icon>
           <span>审核流程</span>
         </el-menu-item>
@@ -46,6 +51,24 @@
     </el-aside>
     <el-container>
       <el-header class="layout-header">
+        <div class="workspace-switcher">
+          <div class="workspace-switcher-label">
+            <span>当前工作台</span>
+            <small>只切换界面，不改变真实身份</small>
+          </div>
+          <el-select
+            :model-value="currentWorkspaceRole"
+            class="workspace-select"
+            @change="handleWorkspaceChange"
+          >
+            <el-option
+              v-for="item in workspaceOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </div>
         <div class="header-right">
           <el-dropdown @command="handleUserMenuCommand">
             <span class="user-info el-dropdown-link">
@@ -95,14 +118,21 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/api'
-import { DataAnalysis, User, List, TrendCharts, Finished, Download, FolderOpened, ArrowDown, DataLine, Reading } from '@element-plus/icons-vue'
+import { DataAnalysis, User, List, TrendCharts, Finished, Download, FolderOpened, ArrowDown, DataLine, Reading, House } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance } from 'element-plus'
+import {
+  WORKSPACE_LABELS,
+  WORKSPACE_PATHS,
+  workspaceAtLeast,
+  type WorkspaceRole,
+} from '@/constants/workspaces'
 
 const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 const passwordFormRef = ref<FormInstance>()
 const changePasswordDialogVisible = ref(false)
@@ -133,10 +163,38 @@ const roleMap: Record<string, string> = {
   super_admin: '超级管理员', admin: '管理员', expert: '专家', leader: '组长', student: '学生',
 }
 const roleLabel = computed(() => roleMap[authStore.user?.role || ''] || '未知')
-const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin')
-const canManageUsers = computed(() => authStore.user?.role === 'super_admin')
-const canManageProjects = computed(() => ['super_admin', 'admin', 'expert'].includes(authStore.user?.role || ''))
-const canResearch = computed(() => ['super_admin', 'admin', 'expert', 'leader'].includes(authStore.user?.role || ''))
+const currentWorkspaceRole = computed(() => authStore.workspaceRole)
+const workspaceLabel = computed(() => WORKSPACE_LABELS[currentWorkspaceRole.value])
+const currentWorkspacePath = computed(() => WORKSPACE_PATHS[currentWorkspaceRole.value])
+const workspaceOptions = computed(() => authStore.availableWorkspaceRoles.map((workspaceRole) => ({
+  value: workspaceRole,
+  label: `${WORKSPACE_LABELS[workspaceRole]}工作台`,
+})))
+const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin' && currentWorkspaceRole.value === 'super_admin')
+const canManageUsers = computed(() =>
+  workspaceAtLeast(currentWorkspaceRole.value, 'admin')
+  && ['super_admin', 'admin'].includes(authStore.user?.role || ''),
+)
+const canManageProjects = computed(() =>
+  workspaceAtLeast(currentWorkspaceRole.value, 'expert')
+  && ['super_admin', 'admin', 'expert'].includes(authStore.user?.role || ''),
+)
+const canResearch = computed(() =>
+  workspaceAtLeast(currentWorkspaceRole.value, 'leader')
+  && ['super_admin', 'admin', 'expert', 'leader'].includes(authStore.user?.role || ''),
+)
+
+function canAtLeast(required: WorkspaceRole) {
+  return workspaceAtLeast(currentWorkspaceRole.value, required)
+}
+
+function handleWorkspaceChange(value: WorkspaceRole) {
+  if (!authStore.setWorkspaceRole(value)) {
+    ElMessage.warning('当前账号不能进入该工作台')
+    return
+  }
+  router.push(WORKSPACE_PATHS[value])
+}
 
 function handleUserMenuCommand(command: string) {
   if (command === 'logout') {
@@ -210,6 +268,13 @@ onMounted(() => {
   font-size: 16px;
   font-weight: 600;
   border-bottom: 1px solid #ffffff1a;
+  flex-direction: column;
+  gap: 2px;
+}
+.logo small {
+  color: #ffffff73;
+  font-size: 11px;
+  font-weight: 400;
 }
 .aside-menu {
   border-right: none;
@@ -218,9 +283,28 @@ onMounted(() => {
   background: #fff;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   padding: 0 24px;
+}
+.workspace-switcher {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.workspace-switcher-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #303133;
+  font-size: 13px;
+}
+.workspace-switcher-label small {
+  color: #909399;
+  font-size: 11px;
+}
+.workspace-select {
+  width: 180px;
 }
 .header-right {
   display: flex;
