@@ -81,30 +81,38 @@
           </div>
         </el-upload>
 
-        <div v-if="isVideoSelected" class="yolo-settings-card">
-          <div class="yolo-settings-head">
-            <span class="yolo-settings-title">视频预处理设置</span>
-            <el-switch v-model="useYoloFilter" active-text="启用 YOLO 动作过滤" inactive-text="仅均匀抽帧" />
-          </div>
-          <p class="yolo-settings-desc">筛选只决定初始显示帧；关键动作附近被筛掉的候选帧仍会按时间戳保留，可在标注页随时加回。</p>
+        <el-collapse v-if="isVideoSelected" v-model="uploadAdvancedPanels" class="optional-settings-collapse">
+          <el-collapse-item name="sampling">
+            <template #title>
+              <span class="optional-settings-title">抽帧设置（可选）</span>
+              <el-tag size="small" type="info" effect="plain">默认均匀抽帧</el-tag>
+            </template>
+            <div class="yolo-settings-card">
+              <div class="yolo-settings-head">
+                <span class="yolo-settings-title">仅在需要减少相似帧时开启</span>
+                <el-switch v-model="useYoloFilter" active-text="启用动作筛选" inactive-text="均匀抽帧" />
+              </div>
+              <p class="yolo-settings-desc">筛选帧不会删除：系统保留时间戳，进入标注后可随时预览并加回。</p>
 
-          <div v-if="useYoloFilter" class="threshold-controls">
-            <span class="threshold-label">动作百分位 (P)</span>
-            <el-input-number
-              v-model="motionPercentile"
-              :min="0"
-              :max="100"
-              :step="1"
-              :precision="0"
-              style="width: 160px"
-            />
-            <div class="threshold-preset-group">
-              <el-button size="small" plain @click="motionPercentile = 60">P60</el-button>
-              <el-button size="small" plain @click="motionPercentile = 70">P70</el-button>
-              <el-button size="small" plain @click="motionPercentile = 80">P80</el-button>
+              <div v-if="useYoloFilter" class="threshold-controls">
+                <span class="threshold-label">动作保留阈值（百分位）</span>
+                <el-input-number
+                  v-model="motionPercentile"
+                  :min="0"
+                  :max="100"
+                  :step="1"
+                  :precision="0"
+                  style="width: 160px"
+                />
+                <div class="threshold-preset-group">
+                  <el-button size="small" plain @click="motionPercentile = 60">多保留</el-button>
+                  <el-button size="small" plain @click="motionPercentile = 70">平衡</el-button>
+                  <el-button size="small" plain @click="motionPercentile = 80">少保留</el-button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </el-collapse-item>
+        </el-collapse>
 
         <div class="upload-actions">
           <el-button type="primary" :loading="uploading" @click="submitUpload" :disabled="!pendingFiles.length || isMediaProcessing">
@@ -132,12 +140,13 @@
             </el-radio-group>
           </el-form-item>
 
-          <el-form-item label="标注目标（必填）">
-            <el-radio-group v-model="metadataForm.annotation_goal">
-              <el-radio-button value="action_sequence">动作时序/战术</el-radio-button>
-              <el-radio-button value="technique_quality" :disabled="metadataForm.capture_mode === 'competition'">精细动作质量</el-radio-button>
-            </el-radio-group>
-          </el-form-item>
+          <div class="metadata-auto-goal">
+            <span>标注目标</span>
+            <el-tag :type="qualityAnnotationEnabled ? 'warning' : 'info'">
+              {{ qualityAnnotationEnabled ? '精细动作质量' : '动作时序 / 战术' }}
+            </el-tag>
+            <span class="metadata-auto-goal-hint">已根据采集场景自动设置</span>
+          </div>
 
           <el-alert
             :type="metadataForm.annotation_goal === 'technique_quality' ? 'warning' : 'info'"
@@ -146,6 +155,13 @@
             show-icon
             style="margin-bottom: 16px;"
           />
+
+          <div class="metadata-advanced-toggle">
+            <el-button text type="primary" @click="metadataAdvancedOpen = !metadataAdvancedOpen">
+              {{ metadataAdvancedOpen ? '收起高级采集字段' : '展开高级采集字段（可选）' }}
+            </el-button>
+            <span>普通任务只需填写下方必填项；研究编号、设备与实验说明按需补充。</span>
+          </div>
 
           <el-row :gutter="10">
             <el-col :xs="24" :sm="12">
@@ -163,7 +179,7 @@
                 </el-select>
               </el-form-item>
             </el-col>
-            <el-col :xs="24" :sm="12">
+            <el-col v-show="metadataAdvancedOpen" :xs="24" :sm="12">
               <el-form-item label="机位高度">
                 <el-select v-model="metadataForm.camera_height" style="width: 100%">
                   <el-option label="低机位（仰拍）" value="low" />
@@ -176,7 +192,7 @@
           </el-row>
 
           <el-row :gutter="10">
-            <el-col :xs="24" :sm="12">
+            <el-col v-show="metadataAdvancedOpen" :xs="24" :sm="12">
               <el-form-item label="同次采集会话编号">
                 <el-input v-model="metadataForm.capture_session_id" maxlength="64" placeholder="同一动作多视角填写相同编号" />
               </el-form-item>
@@ -188,7 +204,7 @@
             </el-col>
           </el-row>
 
-          <el-form-item label="关键点采集方案">
+          <el-form-item v-show="metadataAdvancedOpen" label="关键点采集方案">
             <el-radio-group v-model="metadataForm.marker_protocol">
               <el-radio value="video_landmarks">普通视频关键点</el-radio>
               <el-radio value="physical_markers" :disabled="metadataForm.capture_mode !== 'controlled_training' || metadataForm.annotation_goal !== 'technique_quality'">
@@ -212,7 +228,7 @@
                   <el-input v-model="metadataForm.source_reference" maxlength="512" placeholder="原视频 URL、赛事官方编号或馆藏编号" />
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :sm="12">
+              <el-col v-show="metadataAdvancedOpen" :xs="24" :sm="12">
                 <el-form-item label="来源平台">
                   <el-input v-model="metadataForm.source_platform" maxlength="64" placeholder="例如：BWF 官方频道" />
                 </el-form-item>
@@ -239,12 +255,12 @@
                   <div class="keypoint-hint" v-if="sourceFps > 0">系统从原视频检测：{{ sourceFps }} FPS</div>
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :sm="12">
+              <el-col v-show="metadataAdvancedOpen" :xs="24" :sm="12">
                 <el-form-item label="手机型号">
                   <el-input v-model="metadataForm.device_model" maxlength="128" placeholder="例如：iPhone 15 / Mate 70" />
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :sm="12">
+              <el-col v-show="metadataAdvancedOpen" :xs="24" :sm="12">
                 <el-form-item label="喂球方式">
                   <el-select v-model="metadataForm.feed_method" clearable placeholder="请选择" style="width: 100%">
                     <el-option label="教练喂球" value="coach" />
@@ -255,12 +271,12 @@
                   </el-select>
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :sm="12">
+              <el-col v-show="metadataAdvancedOpen" :xs="24" :sm="12">
                 <el-form-item label="重复动作组编号">
                   <el-input v-model="metadataForm.repetition_group_id" maxlength="64" placeholder="同一条件重复动作填写相同编号" />
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :sm="12">
+              <el-col v-show="metadataAdvancedOpen" :xs="24" :sm="12">
                 <el-form-item label="桥接视角编号">
                   <el-input v-model="metadataForm.bridge_view_id" maxlength="64" placeholder="同一动作的后方/侧方拍摄填写相同编号" />
                 </el-form-item>
@@ -273,7 +289,7 @@
               :title="`填写帧率 ${metadataForm.recording_fps} 与原视频检测值 ${sourceFps} 不一致，请核对拍摄设置。`"
               style="margin-bottom: 12px"
             />
-            <el-form-item label="指定变化或训练要求">
+            <el-form-item v-show="metadataAdvancedOpen" label="指定变化或训练要求">
               <el-input v-model="metadataForm.intended_variation" maxlength="256" placeholder="例如：相同喂球下对比正常到位、稍晚到位、被动击球" />
             </el-form-item>
           </template>
@@ -317,12 +333,12 @@
                     <el-input v-model="player.name" maxlength="128" placeholder="如：张三" />
                   </el-form-item>
                 </el-col>
-                <el-col :xs="24" :sm="12">
+                <el-col v-show="metadataAdvancedOpen" :xs="24" :sm="12">
                   <el-form-item label="匿名受试者编码">
                     <el-input v-model="player.subject_code" maxlength="64" placeholder="ATHLETE_001（跨比赛保持一致）" />
                   </el-form-item>
                 </el-col>
-                <el-col :xs="24" :sm="12">
+                <el-col v-show="metadataAdvancedOpen" :xs="24" :sm="12">
                   <el-form-item label="性别（可选）">
                     <el-select v-model="player.gender" clearable placeholder="请选择">
                       <el-option label="男" value="male" />
@@ -330,12 +346,12 @@
                     </el-select>
                   </el-form-item>
                 </el-col>
-                <el-col :xs="24" :sm="12">
+                <el-col v-show="metadataAdvancedOpen" :xs="24" :sm="12">
                   <el-form-item label="年龄（可选）">
                     <el-input-number v-model="player.age" :min="1" :max="99" controls-position="right" style="width: 100%" />
                   </el-form-item>
                 </el-col>
-                <el-col :xs="24" :sm="12">
+                <el-col v-show="metadataAdvancedOpen" :xs="24" :sm="12">
                   <el-form-item label="身高 cm（可选）">
                     <el-input-number v-model="player.height_cm" :min="80" :max="260" controls-position="right" style="width: 100%" />
                   </el-form-item>
@@ -352,7 +368,7 @@
             </div>
           </div>
 
-          <el-form-item label="拍摄与数据说明">
+          <el-form-item v-show="metadataAdvancedOpen" label="拍摄与数据说明">
             <el-input
               v-model="metadataForm.recording_notes"
               type="textarea"
@@ -365,10 +381,10 @@
         </el-form>
 
         <div class="metadata-actions">
-          <el-button :loading="metadataSaving" @click="saveBatchMetadata">保存元信息</el-button>
-          <el-button type="success" :loading="metadataConfirming" @click="confirmBatchMetadata">
-            确认并开始标注
+          <el-button type="primary" :loading="metadataConfirming" @click="confirmBatchMetadata">
+            保存并开始标注
           </el-button>
+          <el-button text :loading="metadataSaving" @click="saveBatchMetadata">暂存，稍后继续</el-button>
         </div>
       </div>
 
@@ -507,11 +523,22 @@
                 </div>
               </div>
               <div class="segment-guidance">
-                先在右侧选择人物和动作类型，在动作开始帧点击“设当前帧为起点”，移动到结束帧后保存。
-                起止时间戳由服务器从原视频帧自动写入。
+                ① 右侧选人物和动作　② 动作开始时设起点　③ 移到结束帧并保存。时间戳自动写入。
+              </div>
+              <div class="segment-quick-fields">
+                <span class="segment-quick-label">快速事件（可选）</span>
+                <el-select v-model="strokeEvent.context.pressure_state" clearable placeholder="局面压力">
+                  <el-option label="主动" value="attacking"/><el-option label="均势" value="neutral"/><el-option label="被迫" value="forced"/><el-option label="未知" value="unknown"/>
+                </el-select>
+                <el-select v-model="strokeEvent.execution.arrival_state" clearable placeholder="到位状态">
+                  <el-option label="提前到位" value="early"/><el-option label="正常到位" value="on_time"/><el-option label="到位偏晚" value="late"/><el-option label="未知" value="unknown"/>
+                </el-select>
+                <el-select v-model="strokeEvent.outcome.rally_effect" clearable placeholder="回合效果">
+                  <el-option label="形成优势" value="advantage"/><el-option label="维持均势" value="neutral"/><el-option label="陷入被动" value="disadvantage"/><el-option label="直接得分" value="winner"/><el-option label="直接失误" value="error"/><el-option label="未知" value="unknown"/>
+                </el-select>
               </div>
               <el-collapse class="stroke-event-fields">
-                <el-collapse-item title="击球事件四层信息（建议填写）" name="event-layers">
+                <el-collapse-item title="补充四层事件细节（可选）" name="event-layers">
                   <el-alert
                     :type="qualityAnnotationEnabled ? 'warning' : 'info'"
                     :closable="false"
@@ -626,7 +653,14 @@
               </el-collapse>
             </div>
 
-            <div class="influence-card" v-if="currentFramePriority">
+            <div v-if="currentFramePriority || dataValueReport" class="research-assist-toggle">
+              <el-button text type="info" @click="researchAssistOpen = !researchAssistOpen">
+                {{ researchAssistOpen ? '收起研究辅助' : '研究辅助（可选）' }}
+              </el-button>
+              <span>不影响正常标注和保存。</span>
+            </div>
+
+            <div v-show="researchAssistOpen" class="influence-card" v-if="currentFramePriority">
               <div class="influence-main">
                 <span class="influence-title">样本价值建议</span>
                 <el-tag :type="priorityTagType">{{ priorityLabel }}</el-tag>
@@ -643,7 +677,7 @@
               </div>
             </div>
 
-            <div class="teacher-surrogate-card" v-if="dataValueReport">
+            <div v-show="researchAssistOpen" class="teacher-surrogate-card" v-if="dataValueReport">
               <div class="teacher-surrogate-head">
                 <span class="influence-title">数据价值分层评价</span>
                 <el-tag :type="dataValueReport.evidence_status === 'validated_observations' ? 'success' : 'warning'">
@@ -677,7 +711,7 @@
                 @change="jumpToFrame"
               />
               <el-button :disabled="currentFrame >= totalFrames" @click="nextFrame">下一帧</el-button>
-              <el-button type="primary" plain @click="jumpToHighestPriorityFrame">下一优先帧</el-button>
+              <el-button v-if="researchAssistOpen && currentFramePriority" type="primary" plain @click="jumpToHighestPriorityFrame">下一优先帧</el-button>
               <el-button v-if="filteredFrameCandidates.length" type="info" plain @click="openFilteredFrameDialog">
                 筛选帧（{{ filteredFrameCandidates.length }}）
               </el-button>
@@ -729,30 +763,36 @@
                 </el-select>
               </el-form-item>
 
-              <el-form-item label="动作阶段">
-                <el-select v-model="form.action_phase" placeholder="由体育专家判定" clearable style="width: 100%;" :disabled="isStudentAnnotator">
-                  <el-option v-for="opt in taxonomy.phases" :key="opt.value" :label="opt.label" :value="opt.value" />
-                </el-select>
-              </el-form-item>
+              <template v-if="!isStudentAnnotator">
+                <el-collapse class="expert-fields-collapse">
+                  <el-collapse-item title="专家判定字段" name="expert-fields">
+                    <el-form-item label="动作阶段">
+                      <el-select v-model="form.action_phase" placeholder="由体育专家判定" clearable style="width: 100%;">
+                        <el-option v-for="opt in taxonomy.phases" :key="opt.value" :label="opt.label" :value="opt.value" />
+                      </el-select>
+                    </el-form-item>
 
-              <el-form-item label="动作质量">
-                <el-select
-                  v-model="form.quality_rating"
-                  :placeholder="qualityAnnotationEnabled ? '由体育专家判定' : '当前任务为动作时序轨，不做精细质量结论'"
-                  clearable
-                  style="width: 100%;"
-                  :disabled="isStudentAnnotator || !qualityAnnotationEnabled"
-                >
-                  <el-option v-for="opt in taxonomy.qualities" :key="opt.value" :label="opt.label" :value="opt.value" />
-                </el-select>
-              </el-form-item>
+                    <el-form-item label="动作质量">
+                      <el-select
+                        v-model="form.quality_rating"
+                        :placeholder="qualityAnnotationEnabled ? '由体育专家判定' : '当前任务不做精细质量结论'"
+                        clearable
+                        style="width: 100%;"
+                        :disabled="!qualityAnnotationEnabled"
+                      >
+                        <el-option v-for="opt in taxonomy.qualities" :key="opt.value" :label="opt.label" :value="opt.value" />
+                      </el-select>
+                    </el-form-item>
 
-              <el-form-item label="受迫性动作">
-                <el-radio-group v-model="form.is_forced_action" :disabled="isStudentAnnotator">
-                  <el-radio :label="false">否</el-radio>
-                  <el-radio :label="true">是</el-radio>
-                </el-radio-group>
-              </el-form-item>
+                    <el-form-item label="受迫性动作">
+                      <el-radio-group v-model="form.is_forced_action">
+                        <el-radio :label="false">否</el-radio>
+                        <el-radio :label="true">是</el-radio>
+                      </el-radio-group>
+                    </el-form-item>
+                  </el-collapse-item>
+                </el-collapse>
+              </template>
 
               <el-divider content-position="left">击球接触标注</el-divider>
               <el-alert
@@ -766,29 +806,37 @@
                 <el-switch v-model="form.is_contact_event" @change="onContactEventToggle" />
               </el-form-item>
               <template v-if="form.is_contact_event">
-              <el-form-item label="接触帧容差（±1 帧）">
+                <div class="contact-details-toggle">
+                  <el-button text type="primary" @click="contactDetailsOpen = !contactDetailsOpen">
+                    {{ contactDetailsOpen ? '收起接触几何' : '展开接触几何（画面清晰时填写）' }}
+                  </el-button>
+                </div>
+                <div v-show="contactDetailsOpen">
+                <el-form-item label="接触帧容差（±1 帧）">
                   <el-switch v-model="contactForm.tolerance_flag" />
                 </el-form-item>
-                <el-form-item label="拍面击球区">
-                  <el-select v-model="contactForm.contact_zone" clearable placeholder="由体育专家判定" style="width: 100%;" :disabled="isStudentAnnotator">
-                    <el-option v-for="z in CONTACT_ZONES" :key="z.value" :label="z.label" :value="z.value" />
-                  </el-select>
-                </el-form-item>
-              <el-form-item label="拍面姿态">
-                  <el-select v-model="contactForm.face_attitude" clearable placeholder="由体育专家判定" style="width: 100%;" :disabled="isStudentAnnotator">
-                    <el-option v-for="a in FACE_ATTITUDES" :key="a.value" :label="a.label" :value="a.value" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="支撑脚">
-                  <el-select v-model="contactForm.support_foot" clearable placeholder="由体育专家判定" style="width: 100%;" :disabled="isStudentAnnotator">
-                    <el-option v-for="f in SUPPORT_FEET" :key="f.value" :label="f.label" :value="f.value" />
-                  </el-select>
-                </el-form-item>
-              <el-form-item label="技术偏差属性">
-                  <el-select v-model="contactForm.error_attributes" multiple clearable placeholder="由体育专家判定" style="width: 100%;" :disabled="isStudentAnnotator">
-                    <el-option v-for="e in ERROR_ATTRIBUTES" :key="e.value" :label="e.label" :value="e.value" />
-                  </el-select>
-                </el-form-item>
+                <template v-if="!isStudentAnnotator">
+                  <el-form-item label="拍面击球区">
+                    <el-select v-model="contactForm.contact_zone" clearable placeholder="由体育专家判定" style="width: 100%;">
+                      <el-option v-for="z in CONTACT_ZONES" :key="z.value" :label="z.label" :value="z.value" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="拍面姿态">
+                    <el-select v-model="contactForm.face_attitude" clearable placeholder="由体育专家判定" style="width: 100%;">
+                      <el-option v-for="a in FACE_ATTITUDES" :key="a.value" :label="a.label" :value="a.value" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="支撑脚">
+                    <el-select v-model="contactForm.support_foot" clearable placeholder="由体育专家判定" style="width: 100%;">
+                      <el-option v-for="f in SUPPORT_FEET" :key="f.value" :label="f.label" :value="f.value" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="技术偏差属性">
+                    <el-select v-model="contactForm.error_attributes" multiple clearable placeholder="由体育专家判定" style="width: 100%;">
+                      <el-option v-for="e in ERROR_ATTRIBUTES" :key="e.value" :label="e.label" :value="e.value" />
+                    </el-select>
+                  </el-form-item>
+                </template>
               <el-form-item label="拍面归一化坐标 (u, v)">
                   <span class="uv-readout">
                     {{
@@ -830,6 +878,7 @@
                     <el-button size="small" @click="clearContactGeometry">清除接触几何</el-button>
                   </div>
                 </el-form-item>
+                </div>
               </template>
 
               <el-form-item label="备注">
@@ -892,11 +941,11 @@
               <el-divider />
 
               <div class="action-buttons">
-                <el-button type="primary" @click="saveAnnotation" :loading="saving">
-                  {{ currentAnnotation ? '更新标注' : '保存标注' }}
-                </el-button>
-                <el-button type="success" @click="saveAndNext" :loading="saving">
+                <el-button type="primary" @click="saveAndNext" :loading="saving">
                   保存并下一帧
+                </el-button>
+                <el-button @click="saveAnnotation" :loading="saving">
+                  {{ currentAnnotation ? '仅更新当前帧' : '仅保存当前帧' }}
                 </el-button>
               </div>
 
@@ -1148,6 +1197,10 @@ const submitting = ref(false)
 const confirming = ref(false)
 const uploading = ref(false)
 const loadingImage = ref(false)
+const uploadAdvancedPanels = ref<string[]>([])
+const metadataAdvancedOpen = ref(false)
+const contactDetailsOpen = ref(false)
+const researchAssistOpen = ref(false)
 
 const frameImageUrl = ref<string | null>(null)
 const previousFrameImageUrl = ref<string | null>(null)
@@ -1460,10 +1513,12 @@ const contactZoneLabel = (v: string) => CONTACT_ZONES.find((z) => z.value === v)
 
 function onContactEventToggle(val: string | number | boolean) {
   if (val) {
+    contactDetailsOpen.value = false
     if (!form.action_phase || form.action_phase === 'impact') {
       form.action_phase = 'contact'
     }
   } else if (annotationLayerMode.value.startsWith('contact')) {
+    contactDetailsOpen.value = false
     annotationLayerMode.value = 'skeleton'
   }
 }
@@ -3235,6 +3290,17 @@ onUnmounted(() => {
   border-radius: 8px;
   background: linear-gradient(180deg, #f5f9ff 0%, #f8fbff 100%);
 }
+.optional-settings-collapse {
+  margin-top: 14px;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  padding: 0 14px;
+}
+.optional-settings-title {
+  margin-right: 10px;
+  font-weight: 600;
+  color: #303133;
+}
 .yolo-settings-head {
   display: flex;
   align-items: center;
@@ -3324,6 +3390,27 @@ onUnmounted(() => {
 }
 .metadata-form {
   max-width: 560px;
+}
+.metadata-auto-goal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #303133;
+}
+.metadata-auto-goal-hint,
+.metadata-advanced-toggle span,
+.research-assist-toggle span {
+  color: #909399;
+  font-size: 12px;
+}
+.metadata-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 12px;
+  flex-wrap: wrap;
 }
 .metadata-player-head {
   display: flex;
@@ -3573,6 +3660,17 @@ onUnmounted(() => {
   margin-top: 8px;
   color: #64748b;
 }
+.segment-quick-fields {
+  display: grid;
+  grid-template-columns: auto repeat(3, minmax(110px, 1fr));
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.segment-quick-label {
+  color: #303133;
+  font-weight: 600;
+}
 .stroke-event-fields {
   margin-top: 10px;
 }
@@ -3606,6 +3704,12 @@ onUnmounted(() => {
 .segment-submit-actions {
   justify-content: flex-end;
   padding-top: 10px;
+}
+.research-assist-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
 }
 .influence-card {
   margin: 10px 0 12px;
@@ -3695,9 +3799,23 @@ onUnmounted(() => {
 .annotation-form {
   padding: 0 8px;
 }
+.expert-fields-collapse {
+  margin-bottom: 10px;
+}
+.contact-details-toggle {
+  margin: -8px 0 8px;
+}
 .action-buttons {
   display: flex;
   gap: 8px;
+}
+.action-buttons .el-button:first-child {
+  flex: 1;
+}
+@media (max-width: 900px) {
+  .segment-quick-fields {
+    grid-template-columns: 1fr;
+  }
 }
 .batch-actions {
   margin-top: 8px;
